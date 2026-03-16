@@ -1,0 +1,21 @@
+[Unit]
+Description=Grexa Web App - Admin Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/ubuntu/grexa-webapp-admin
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+# Set your password here
+Environment=DEPLOY_PASSWORD=grexa@preprod
+Environment=PORT=3456
+
+# Add flutter to PATH (adjust to your flutter installation path)
+Environment=PATH=/home/ubuntu/flutter/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target
