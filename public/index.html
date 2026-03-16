@@ -6,24 +6,21 @@
   <title>Grexa Deployer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="login-screen" class="screen">
     <div class="login-box">
       <div class="login-logo">
-        <span class="logo-mark">G</span>
-        <div class="login-title">
-          <span class="brand">GREXA</span>
-          <span class="sub">Deploy Control</span>
-        </div>
+        <img src="js/app_logo_light.png" class="logo-img-login" alt="Grexa" />
+        <span class="login-sub">Deploy Control</span>
       </div>
       <form id="login-form">
         <div class="field">
           <input type="password" id="password-input" placeholder="Enter deploy password" autocomplete="current-password" />
         </div>
-        <button type="submit" class="btn-primary">Unlock →</button>
+        <button type="submit" class="btn-primary">Unlock</button>
         <p id="login-error" class="error-msg hidden">Wrong password. Try again.</p>
       </form>
     </div>
@@ -32,33 +29,32 @@
   <div id="app-screen" class="screen hidden">
     <header>
       <div class="header-left">
-        <span class="logo-mark sm">G</span>
-        <span class="brand">GREXA</span>
+        <img src="js/app_logo_light.png" class="logo-img-header" alt="Grexa" />
         <span class="header-sep">/</span>
         <span class="header-label">Deploy Control</span>
       </div>
       <div class="header-right">
         <span id="header-status-dot" class="status-dot idle"></span>
-        <button id="refresh-btn" class="btn-ghost" title="Refresh status">↻ Refresh</button>
-        <button id="logout-btn" class="btn-ghost dim">Logout</button>
+        <button id="refresh-btn" class="btn-ghost">Refresh</button>
+        <button id="logout-btn" class="btn-ghost muted">Logout</button>
       </div>
     </header>
 
     <main>
-      <div class="env-grid" id="env-grid">
-        <!-- Cards injected by JS -->
+      <div id="env-list" class="env-list">
+        <!-- Items injected by JS -->
       </div>
 
       <div id="log-panel" class="log-panel hidden">
         <div class="log-header">
           <span id="log-title">Deploy Log</span>
-          <button class="btn-ghost dim" id="close-log">✕ Close</button>
+          <button class="btn-ghost muted" id="close-log">Close</button>
         </div>
         <pre id="log-output" class="log-output"></pre>
       </div>
     </main>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
