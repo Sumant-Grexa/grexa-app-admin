@@ -71,6 +71,8 @@ export async function provisionEnv(env) {
   await ssh(
     `sudo mv /tmp/${nginxFileName} /etc/nginx/sites-available/${nginxFileName} && ` +
     `sudo ln -sf /etc/nginx/sites-available/${nginxFileName} /etc/nginx/sites-enabled/${nginxFileName} && ` +
+    `sudo find /etc/nginx/sites-enabled/ -maxdepth 1 -xtype l -delete && ` +
+    `sudo ln -sf /etc/nginx/sites-available/${nginxFileName} /etc/nginx/sites-enabled/${nginxFileName} && ` +
     `sudo nginx -t && sudo systemctl reload nginx`
   );
   log.push(`Nginx config created and enabled.`);
