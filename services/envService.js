@@ -59,7 +59,6 @@ export async function provisionEnv(env) {
   const template = readFileSync(NGINX_TEMPLATE, "utf-8");
   const config = template
     .replace(/\{serverName\}/g, serverName)
-    .replace(/\{webRoot\}/g, remotePath)
     .replace(/\{env\}/g, id);
 
   const tmpFile = join(tmpdir(), `grexa-nginx-${nginxFileName}`);
