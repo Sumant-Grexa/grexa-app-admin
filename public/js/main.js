@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { checkAuth, initAuth, showLogin, showApp } from "./auth.js";
 import { renderEnvList, populateSelect, getBranchValue, updateHeaderDot, initDropdowns } from "./render.js";
 import { initLog, openLog, startLogPolling } from "./log.js";
+import { initAddEnvModal, initRemoveEnvModal } from "./envManager.js";
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 let statusData = {};
@@ -17,6 +18,7 @@ async function loadStatus() {
       onFetch: fetchBranches,
       onDeploy: deployBranch,
       onViewLog: (id) => openLog(id, statusData[id]?.label),
+      onRemove: (id, label) => removeEnvModal.open(id, label),
     });
   } catch (err) {
     console.error("Status fetch failed:", err);
@@ -66,6 +68,8 @@ async function deployBranch(envId, branch) {
 initAuth(() => { showApp(); loadStatus(); });
 initLog(null);
 initDropdowns();
+initAddEnvModal(loadStatus);
+const removeEnvModal = initRemoveEnvModal(loadStatus);
 
 document.getElementById("refresh-btn").addEventListener("click", loadStatus);
 

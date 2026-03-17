@@ -1,5 +1,5 @@
 import simpleGit from "simple-git";
-import ENVS from "../config/environments.js";
+import { getEnvs } from "../config/environments.js";
 import { deployState, getBranches, setState, runDeploy } from "../services/deployService.js";
 
 /**
@@ -11,7 +11,7 @@ async function getStatus(_req, res) {
   const result = {};
 
   await Promise.all(
-    Object.entries(ENVS).map(async ([id, env]) => {
+    Object.entries(getEnvs()).map(async ([id, env]) => {
       try {
         const git = simpleGit(env.repoPath);
         const branchSummary = await git.branch();
@@ -40,7 +40,7 @@ async function getStatus(_req, res) {
  * @param {import("express").Response} res
  */
 async function getEnvBranches(req, res) {
-  const env = ENVS[req.params.envId];
+  const env = getEnvs()[req.params.envId];
   if (!env) return res.status(404).json({ error: "Unknown environment" });
 
   try {
@@ -58,7 +58,7 @@ async function getEnvBranches(req, res) {
  */
 function startDeploy(req, res) {
   const { envId, branch } = req.body;
-  const env = ENVS[envId];
+  const env = getEnvs()[envId];
 
   if (!env) return res.status(404).json({ error: "Unknown environment" });
   if (!branch) return res.status(400).json({ error: "Branch is required" });

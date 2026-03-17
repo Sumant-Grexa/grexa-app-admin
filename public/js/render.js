@@ -80,7 +80,7 @@ export function initDropdowns() {
  * @param {Record<string, any>} branchCache
  * @param {{ onFetch, onDeploy, onViewLog }} callbacks
  */
-export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog }) {
+export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog, onRemove }) {
   const list = document.getElementById("env-list");
   list.innerHTML = "";
 
@@ -102,7 +102,10 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog 
           <span class="env-sep">·</span>
           <span class="env-current-branch" id="branch-live-${id}">${branch}</span>
         </div>
-        ${badgeHTML(deploy)}
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${badgeHTML(deploy)}
+          <button class="btn-remove-env" id="remove-${id}" title="Remove environment" aria-label="Remove ${esc(env.label)}">&#x2715;</button>
+        </div>
       </div>
 
       <div class="env-row-actions">
@@ -206,6 +209,10 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog 
     // Log button
     const logBtn = document.getElementById(`log-${id}`);
     if (logBtn) logBtn.addEventListener("click", () => onViewLog(id));
+
+    // Remove button
+    const removeBtn = document.getElementById(`remove-${id}`);
+    if (removeBtn) removeBtn.addEventListener("click", () => onRemove && onRemove(id, env.label));
 
     // Restore cached branches across re-renders
     if (branchCache[id]) {

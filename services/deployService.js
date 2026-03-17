@@ -1,7 +1,7 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import simpleGit from "simple-git";
-import ENVS from "../config/environments.js";
+import { getEnvs } from "../config/environments.js";
 
 const execAsync = promisify(exec);
 
@@ -40,7 +40,7 @@ function setState(envId, patch) {
 
 /** @param {string} envId */
 async function runDeploy(envId) {
-  const env = ENVS[envId];
+  const env = getEnvs()[envId];
   const git = simpleGit(env.repoPath);
   const log = [];
 

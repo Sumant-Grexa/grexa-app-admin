@@ -1,43 +1,25 @@
-/**
- * @typedef {{
- *   id: string,
- *   label: string,
- *   subdomain: string,
- *   repoPath: string,
- *   buildOutput: string,
- *   flavor: string,
- *   remote: { host: string, user: string, path: string }
- * }} Env
- */
+import { readFileSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
-/** @type {Record<string, Env>} */
-const ENVS = {
-  preprod: {
-    id: "preprod",
-    label: "Pre-prod",
-    subdomain: "preprod-app",
-    repoPath: "/home/ubuntu/grexa-app/preprod-web",
-    buildOutput: "/home/ubuntu/grexa-app/preprod-web/build/web",
-    flavor: "dev",
-    remote: {
-      host: "34.47.166.243",
-      user: "sumant",
-      path: "/var/www/preprod-app/web",
-    },
-  },
-  bira: {
-    id: "bira",
-    label: "Bira",
-    subdomain: "bira",
-    repoPath: "/home/ubuntu/grexa-app/bira-web",
-    buildOutput: "/home/ubuntu/grexa-app/bira-web/build/web",
-    flavor: "dev",
-    remote: {
-      host: "34.47.166.243",
-      user: "sumant",
-      path: "/var/www/preprod-app/bira-web",
-    },
-  },
-};
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CONFIG_FILE = join(__dirname, "environments.json");
 
-export default ENVS;
+/** @returns {Record<string, import('./environments.js').Env>} */
+export function getEnvs() {
+  return JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+}
+
+/** @param {import('./environments.js').Env} env */
+export function addEnv(env) {
+  const envs = getEnvs();
+  envs[env.id] = env;
+  writeFileSync(CONFIG_FILE, JSON.stringify(envs, null, 2), "utf-8");
+}
+
+/** @param {string} id */
+export function removeEnv(id) {
+  const envs = getEnvs();
+  delete envs[id];
+  writeFileSync(CONFIG_FILE, JSON.stringify(envs, null, 2), "utf-8");
+}

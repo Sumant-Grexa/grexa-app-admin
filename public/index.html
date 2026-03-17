@@ -36,6 +36,7 @@
       <div class="header-right">
         <span id="header-status-dot" class="status-dot idle"></span>
         <button id="refresh-btn" class="btn-ghost">Refresh</button>
+        <button id="add-env-btn" class="btn-ghost">+ Add Env</button>
         <button id="logout-btn" class="btn-ghost muted">Logout</button>
       </div>
     </header>
@@ -53,6 +54,57 @@
         <pre id="log-output" class="log-output"></pre>
       </div>
     </main>
+  </div>
+
+  <!-- Add Environment Modal -->
+  <div id="add-env-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Add Environment</span>
+        <button class="modal-close" id="add-env-close">&times;</button>
+      </div>
+      <form id="add-env-form">
+        <div class="modal-body">
+          <div class="field-group">
+            <label class="field-label" for="new-env-name">Environment Name</label>
+            <input type="text" id="new-env-name" class="field-input" placeholder="e.g. staging" autocomplete="off" />
+            <span class="field-hint">Used as the environment ID (lowercased, hyphens allowed)</span>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="new-env-subdomain">Subdomain</label>
+            <input type="text" id="new-env-subdomain" class="field-input" placeholder="e.g. staging" autocomplete="off" />
+            <span class="field-hint">Used for the nginx server_name</span>
+          </div>
+          <p id="add-env-error" class="error-msg hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="add-env-cancel">Cancel</button>
+          <button type="submit" class="btn-primary" id="add-env-submit">Add Environment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Remove Environment Modal -->
+  <div id="remove-env-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Remove Environment</span>
+        <button class="modal-close" id="remove-env-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-warn">This will remove the nginx config, build directory, and source repo for <strong id="remove-env-label"></strong>. This cannot be undone.</p>
+        <div class="field-group">
+          <label class="field-label" for="remove-env-password">Confirm Password</label>
+          <input type="password" id="remove-env-password" class="field-input" placeholder="Enter deploy password" autocomplete="current-password" />
+        </div>
+        <p id="remove-env-error" class="error-msg hidden"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" id="remove-env-cancel">Cancel</button>
+        <button type="button" class="btn-danger" id="remove-env-submit">Remove</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="js/main.js"></script>
