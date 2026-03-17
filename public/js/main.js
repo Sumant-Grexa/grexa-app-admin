@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { checkAuth, initAuth, showLogin, showApp } from "./auth.js";
-import { renderEnvList, populateSelect, updateHeaderDot } from "./render.js";
+import { renderEnvList, populateSelect, getBranchValue, updateHeaderDot, initDropdowns } from "./render.js";
 import { initLog, openLog, startLogPolling } from "./log.js";
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
@@ -25,9 +25,12 @@ async function loadStatus() {
 
 /* ── Branches ──────────────────────────────────────────────────────────────── */
 async function fetchBranches(envId) {
-  const sel = document.getElementById(`select-${envId}`);
-  const btn = document.getElementById(`fetch-${envId}`);
-  sel.innerHTML = `<option>Fetching...</option>`;
+  const display = document.getElementById(`selector-display-${envId}`);
+  const trigger = document.getElementById(`selector-trigger-${envId}`);
+  const btn     = document.getElementById(`fetch-${envId}`);
+
+  if (display) display.textContent = "Fetching...";
+  if (trigger) trigger.disabled = true;
   btn.disabled = true;
 
   try {
@@ -35,8 +38,9 @@ async function fetchBranches(envId) {
     branchCache[envId] = { branches: data.branches, current: data.current };
     populateSelect(envId, branchCache[envId]);
   } catch (err) {
-    sel.innerHTML = `<option>Error: ${err.message}</option>`;
+    if (display) display.textContent = "Error — try again";
   } finally {
+    if (trigger) trigger.disabled = false;
     btn.disabled = false;
   }
 }
@@ -61,6 +65,7 @@ async function deployBranch(envId, branch) {
 /* ── Init ──────────────────────────────────────────────────────────────────── */
 initAuth(() => { showApp(); loadStatus(); });
 initLog(null);
+initDropdowns();
 
 document.getElementById("refresh-btn").addEventListener("click", loadStatus);
 

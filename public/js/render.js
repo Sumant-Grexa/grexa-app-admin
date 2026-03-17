@@ -27,24 +27,57 @@ export function updateHeaderDot(deploying) {
   dot.className = "status-dot " + (deploying ? "deploying" : "idle");
 }
 
-export function populateSelect(envId, { branches, current }, disabled = false) {
-  const sel = document.getElementById(`select-${envId}`);
-  if (!sel) return;
-  sel.innerHTML = `<option value="">— select branch —</option>`;
-  branches.forEach((b) => {
-    const opt = document.createElement("option");
-    opt.value = b;
-    opt.textContent = b + (b === current ? " ✓" : "");
-    sel.appendChild(opt);
-  });
-  if (current) sel.value = current;
-  const deployBtn = document.getElementById(`deploy-${envId}`);
-  if (deployBtn) deployBtn.disabled = !sel.value || disabled;
+/** Returns the currently selected branch value for an env. */
+export function getBranchValue(envId) {
+  return document.getElementById(`select-wrap-${envId}`)?.dataset.selected ?? "";
 }
 
 /**
- * @param {Record<string, any>} data - status data from /api/status
- * @param {Record<string, any>} branchCache - cached branch lists per envId
+ * Fills the custom dropdown options and pre-selects the current branch.
+ * No restriction on redeploying the same branch.
+ */
+export function populateSelect(envId, { branches, current }, disabled = false) {
+  const wrap = document.getElementById(`select-wrap-${envId}`);
+  if (!wrap) return;
+
+  const optsEl = document.getElementById(`options-${envId}`);
+  optsEl.innerHTML = "";
+
+  branches.forEach((b) => {
+    const opt = document.createElement("div");
+    opt.className = "branch-option" + (b === current ? " is-current" : "");
+    opt.dataset.value = b;
+    opt.textContent = b;
+    optsEl.appendChild(opt);
+  });
+
+  // Pre-select current branch — deploy button enabled regardless
+  if (current) {
+    wrap.dataset.selected = current;
+    const display = document.getElementById(`selector-display-${envId}`);
+    if (display) display.textContent = current;
+    // Mark selected
+    Array.from(optsEl.children).forEach((o) =>
+      o.classList.toggle("selected", o.dataset.value === current)
+    );
+  }
+
+  const deployBtn = document.getElementById(`deploy-${envId}`);
+  if (deployBtn) deployBtn.disabled = !wrap.dataset.selected || disabled;
+}
+
+/** Call once at init — closes any open dropdown when clicking outside. */
+export function initDropdowns() {
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".branch-dropdown:not(.hidden)").forEach((dd) =>
+      dd.classList.add("hidden")
+    );
+  });
+}
+
+/**
+ * @param {Record<string, any>} data
+ * @param {Record<string, any>} branchCache
  * @param {{ onFetch, onDeploy, onViewLog }} callbacks
  */
 export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog }) {
@@ -73,9 +106,21 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog 
       </div>
 
       <div class="env-row-actions">
-        <select class="branch-select" id="select-${id}" ${isDeploying ? "disabled" : ""}>
-          <option value="">— fetch branches —</option>
-        </select>
+        <div class="branch-selector-wrap" id="select-wrap-${id}" data-selected="">
+          <button type="button" class="selector-trigger" id="selector-trigger-${id}" ${isDeploying ? "disabled" : ""}>
+            <span class="selector-display" id="selector-display-${id}">— fetch branches —</span>
+            <svg class="selector-caret" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div class="branch-dropdown hidden" id="dropdown-${id}">
+            <div class="dropdown-search-wrap">
+              <input type="text" class="dropdown-search" id="search-${id}" placeholder="Search branches..." autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="dropdown-options" id="options-${id}"></div>
+          </div>
+        </div>
+
         <button class="btn-fetch" id="fetch-${id}" ${isDeploying ? "disabled" : ""}>Fetch</button>
         <div class="btn-action-sep"></div>
         <button class="btn-deploy" id="deploy-${id}" disabled>
@@ -97,24 +142,72 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog 
 
     list.appendChild(item);
 
+    // ── Dropdown wiring ────────────────────────────────────────────────────
+    const trigger   = document.getElementById(`selector-trigger-${id}`);
+    const dropdown  = document.getElementById(`dropdown-${id}`);
+    const searchEl  = document.getElementById(`search-${id}`);
+    const optsEl    = document.getElementById(`options-${id}`);
+    const wrap      = document.getElementById(`select-wrap-${id}`);
+    const deployBtn = document.getElementById(`deploy-${id}`);
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation(); // prevent global close listener from firing immediately
+      // Close other open dropdowns
+      document.querySelectorAll(".branch-dropdown:not(.hidden)").forEach((dd) => {
+        if (dd !== dropdown) dd.classList.add("hidden");
+      });
+      dropdown.classList.toggle("hidden");
+      if (!dropdown.classList.contains("hidden")) {
+        searchEl.value = "";
+        Array.from(optsEl.children).forEach((o) => (o.style.display = ""));
+        searchEl.focus();
+      }
+    });
+
+    // Prevent clicks inside dropdown from bubbling to global close listener
+    dropdown.addEventListener("click", (e) => e.stopPropagation());
+
+    // Real-time search filter
+    searchEl.addEventListener("input", () => {
+      const q = searchEl.value.toLowerCase();
+      Array.from(optsEl.children).forEach((o) => {
+        o.style.display = o.dataset.value.toLowerCase().includes(q) ? "" : "none";
+      });
+    });
+
+    searchEl.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") dropdown.classList.add("hidden");
+    });
+
+    // Option click — no restriction, same branch can be redeployed
+    optsEl.addEventListener("click", (e) => {
+      const opt = e.target.closest(".branch-option");
+      if (!opt) return;
+      const val = opt.dataset.value;
+      wrap.dataset.selected = val;
+      document.getElementById(`selector-display-${id}`).textContent = val;
+      dropdown.classList.add("hidden");
+      Array.from(optsEl.children).forEach((o) =>
+        o.classList.toggle("selected", o.dataset.value === val)
+      );
+      deployBtn.disabled = isDeploying; // only disabled if a deploy is running
+    });
+
+    // Fetch button
     document.getElementById(`fetch-${id}`)
       .addEventListener("click", () => onFetch(id));
 
-    document.getElementById(`select-${id}`)
-      .addEventListener("change", (e) => {
-        document.getElementById(`deploy-${id}`).disabled = !e.target.value || isDeploying;
-      });
+    // Deploy button
+    deployBtn.addEventListener("click", () => {
+      const b = getBranchValue(id);
+      if (b) onDeploy(id, b);
+    });
 
-    document.getElementById(`deploy-${id}`)
-      .addEventListener("click", () => {
-        const b = document.getElementById(`select-${id}`).value;
-        if (b) onDeploy(id, b);
-      });
-
+    // Log button
     const logBtn = document.getElementById(`log-${id}`);
     if (logBtn) logBtn.addEventListener("click", () => onViewLog(id));
 
-    // Restore cached branches so re-renders don't wipe the dropdown
+    // Restore cached branches across re-renders
     if (branchCache[id]) {
       populateSelect(id, branchCache[id], isDeploying);
     }

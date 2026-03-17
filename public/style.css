@@ -188,13 +188,11 @@ main {
 
 /* ── Env list ──────────────────────────────────────────────────────────────── */
 .env-list {
-  background: var(--border);
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  /* No overflow:hidden — it clips the absolutely positioned dropdown */
 }
 
 /* ── Env item ──────────────────────────────────────────────────────────────── */
@@ -205,7 +203,14 @@ main {
   flex-direction: column;
   gap: 10px;
   transition: background .1s;
+  border-bottom: 1px solid var(--border);
+  position: relative; /* so its own stacking context doesn't clip children */
 }
+.env-item:last-child  { border-bottom: none; }
+.env-item:first-child { border-radius: 10px 10px 0 0; }
+.env-item:last-child  { border-radius: 0 0 10px 10px; }
+.env-item:only-child  { border-radius: 10px; }
+
 .env-item.deploying-state { background: #fffbeb; }
 .env-item.success-state   { background: #f0fdf4; }
 .env-item.error-state     { background: #fef2f2; }
@@ -261,28 +266,108 @@ main {
   gap: 6px;
 }
 
-.branch-select {
+/* ── Custom searchable branch selector ─────────────────────────────────────── */
+.branch-selector-wrap {
+  position: relative;
   flex: 1;
-  min-width: 0;                /* allows shrinking below content size — fixes overflow */
+  min-width: 0;
+}
+
+.selector-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 12px;
-  padding: 7px 28px 7px 10px;
-  outline: none;
+  padding: 7px 10px;
   cursor: pointer;
+  text-align: left;
   transition: border-color .15s;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
+  min-width: 0;
+}
+.selector-trigger:hover:not(:disabled) { border-color: var(--border2); }
+.selector-trigger:disabled             { opacity: .5; cursor: not-allowed; }
+
+.selector-display {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
-.branch-select:focus    { border-color: var(--accent); }
-.branch-select:disabled { opacity: .5; cursor: not-allowed; }
+
+.selector-caret {
+  width: 10px;
+  height: 6px;
+  flex-shrink: 0;
+  color: var(--border2);
+  transition: transform .15s;
+}
+
+.branch-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(15,23,42,.12);
+  z-index: 1000;   /* high enough to clear sibling env items */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+}
+
+.dropdown-search-wrap {
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dropdown-search {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+.dropdown-search:focus    { border-color: var(--accent); }
+.dropdown-search::placeholder { color: var(--border2); }
+
+.dropdown-options {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.dropdown-options::-webkit-scrollbar       { width: 4px; }
+.dropdown-options::-webkit-scrollbar-track { background: transparent; }
+.dropdown-options::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.branch-option {
+  padding: 7px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background .1s;
+}
+.branch-option:hover      { background: var(--bg3); }
+.branch-option.selected   { color: var(--accent); background: rgba(74,79,238,.06); }
+.branch-option.is-current { font-weight: 500; }
 
 .btn-fetch {
   background: var(--bg3);
