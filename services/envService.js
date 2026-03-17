@@ -54,8 +54,8 @@ export async function provisionEnv(env) {
   await ssh(`sudo mkdir -p ${remotePath} && sudo chown ${user}:${user} ${remotePath}`);
 
   // 3. Build nginx config from template, upload and enable it
-  const nginxFileName = `${id}-web`;
   const serverName = resolveServerName(subdomain);
+  const nginxFileName = serverName;
   const template = readFileSync(NGINX_TEMPLATE, "utf-8");
   const config = template
     .replace(/\{serverName\}/g, serverName)
@@ -87,10 +87,10 @@ export async function provisionEnv(env) {
  */
 export async function deprovisionEnv(env) {
   const log = [];
-  const { id, repoPath, remote } = env;
+  const { subdomain, repoPath, remote } = env;
   const { host, user, path: remotePath } = remote;
   const ssh = (cmd) => execAsync(`ssh ${user}@${host} "${cmd}"`);
-  const nginxFileName = `${id}-web`;
+  const nginxFileName = resolveServerName(subdomain);
 
   // 1. Remove nginx config on target VM
   log.push(`Removing nginx config on target VM`);
