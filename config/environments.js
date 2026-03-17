@@ -20,7 +20,7 @@ const ENVS = {
     buildOutput: "/Users/admin/Desktop/grexa-app/build/web",
     flavor: "dev",
     remote: {
-      host: "10.160.0.10",
+      host: "34.47.166.243",
       user: "sumant",
       path: "/var/www/preprod-app/web",
     },
@@ -33,7 +33,7 @@ const ENVS = {
     buildOutput: "/Users/admin/Desktop/Grexa/grexa-app-botified/build/web",
     flavor: "dev",
     remote: {
-      host: "10.160.0.10",
+      host: "34.47.166.243",
       user: "sumant",
       path: "/var/www/preprod-app/bira-web",
     },

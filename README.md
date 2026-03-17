@@ -15,7 +15,7 @@ A minimal web UI to manage branch deployments across Grexa preprod Flutter envir
 ## Architecture
 
 ```
-Deployer VM                          Serve VM (10.160.0.10)
+Deployer VM                          Serve VM (34.47.166.243)
 ────────────────────────────         ──────────────────────────────
 grexa-deployer (this app)            nginx
 app source repos                     /var/www/preprod-app/
@@ -76,7 +76,7 @@ Edit `config/environments.js` — set `repoPath`, `buildOutput`, `flavor`, and `
 
 ```js
 remote: {
-  host: "10.160.0.10",   // Serve VM IP or hostname
+  host: "34.47.166.243",   // Serve VM IP or hostname
   user: "sumant",        // SSH user on Serve VM
   path: "/var/www/preprod-app/web",
 }
@@ -91,10 +91,10 @@ The deployer must be able to rsync to the Serve VM without a password prompt:
 ssh-keygen -t ed25519 -C "grexa-deployer"
 
 # Copy public key to Serve VM
-ssh-copy-id sumant@10.160.0.10
+ssh-copy-id sumant@34.47.166.243
 
 # Test
-ssh sumant@10.160.0.10 "echo ok"
+ssh sumant@34.47.166.243 "echo ok"
 ```
 
 ### 6. Make sure flutter is in PATH
