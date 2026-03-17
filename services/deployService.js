@@ -86,7 +86,7 @@ async function runDeploy(envId) {
     const { host, user, path } = env.remote;
     append(`Syncing build output to ${user}@${host}:${path}`);
     await execAsync(
-      `rsync -avz --delete ${env.buildOutput}/ ${user}@${host}:${path}/`
+      `rsync -avz --delete --rsync-path="sudo rsync" ${env.buildOutput}/ ${user}@${host}:${path}/`
     );
 
     append(`Deploy complete! Branch "${targetBranch}" is now live.`);

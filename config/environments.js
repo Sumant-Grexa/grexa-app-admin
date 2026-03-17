@@ -16,8 +16,8 @@ const ENVS = {
     id: "preprod",
     label: "Pre-prod",
     subdomain: "preprod-app",
-    repoPath: "/Users/admin/Desktop/grexa-app",
-    buildOutput: "/Users/admin/Desktop/grexa-app/build/web",
+    repoPath: "/home/ubuntu/grexa-app/preprod-web",
+    buildOutput: "/home/ubuntu/grexa-app/preprod-web/build/web",
     flavor: "dev",
     remote: {
       host: "34.47.166.243",
@@ -29,8 +29,8 @@ const ENVS = {
     id: "bira",
     label: "Bira",
     subdomain: "bira",
-    repoPath: "/Users/admin/Desktop/Grexa/grexa-app-botified",
-    buildOutput: "/Users/admin/Desktop/Grexa/grexa-app-botified/build/web",
+    repoPath: "/home/ubuntu/grexa-app/bira-web",
+    buildOutput: "/home/ubuntu/grexa-app/bira-web/build/web",
     flavor: "dev",
     remote: {
       host: "34.47.166.243",
