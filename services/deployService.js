@@ -57,6 +57,10 @@ async function runDeploy(envId) {
     append(`Fetching latest from remote...`);
     await git.fetch(["--prune"]);
 
+    append(`Discarding local changes...`);
+    await git.reset(["--hard"]);
+    await git.clean("f", ["-d"]);
+
     append(`Checking out branch: ${targetBranch}`);
     await git.checkout(targetBranch);
     await git.pull("origin", targetBranch, ["--ff-only"]);
