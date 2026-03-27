@@ -49,7 +49,12 @@ export async function provisionEnv(env) {
   log.push(`Cloning ${repoUrl} → ${repoPath}`);
   await execAsync(`git clone ${repoUrl} ${repoPath}`);
 
-  // 2. Create web root directory on target VM
+  // 2. Copy all .env.* files from preprod repo
+  const preprodPath = process.env.SOURCE_REPO_BASE || "/home/ubuntu/grexa-app/preprod-web";
+  log.push(`Copying .env.* files from preprod repo (${preprodPath})`);
+  await execAsync(`cp ${preprodPath}/.env.* ${repoPath}/`);
+
+  // 3. Create web root directory on target VM
   log.push(`Creating web root on target VM: ${remotePath}`);
   await ssh(`sudo mkdir -p ${remotePath} && sudo chown ${user}:${user} ${remotePath}`);
 
