@@ -65,6 +65,28 @@ async function runDeploy(envId) {
     await git.checkout(targetBranch);
     await git.pull("origin", targetBranch, ["--ff-only"]);
 
+    append(`Running dart run build_runner build --delete-conflicting-outputs`);
+    await new Promise((resolve, reject) => {
+      const child = exec(
+        `dart run build_runner build --delete-conflicting-outputs`,
+        { cwd: env.repoPath }
+      );
+
+      const pipe = (/** @type {unknown} */ data) =>
+        String(data)
+          .trim()
+          .split("\n")
+          .forEach((l) => l && append(`  ${l}`));
+
+      child.stdout?.on("data", pipe);
+      child.stderr?.on("data", pipe);
+      child.on("close", (code) =>
+        code === 0
+          ? resolve(undefined)
+          : reject(new Error(`build_runner exited with code ${code}`))
+      );
+    });
+
     append(`Running flutter build web --dart-define=FLAVOR=${env.flavor}`);
     await new Promise((resolve, reject) => {
       const child = exec(
