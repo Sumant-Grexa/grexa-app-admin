@@ -67,13 +67,15 @@
         <div class="modal-body">
           <div class="field-group">
             <label class="field-label" for="new-env-name">Environment Name</label>
-            <input type="text" id="new-env-name" class="field-input" placeholder="e.g. staging" autocomplete="off" />
-            <span class="field-hint">Used as the environment ID (lowercased, hyphens allowed)</span>
+            <input type="text" id="new-env-name" class="field-input" placeholder="e.g. hoegarden" autocomplete="off" />
+            <span class="field-hint">Lowercase letters, numbers, hyphens only — no spaces</span>
+            <p id="name-field-error" class="error-msg hidden"></p>
           </div>
           <div class="field-group">
             <label class="field-label" for="new-env-subdomain">Subdomain</label>
-            <input type="text" id="new-env-subdomain" class="field-input" placeholder="e.g. staging" autocomplete="off" />
-            <span class="field-hint">Used for the nginx server_name</span>
+            <input type="text" id="new-env-subdomain" class="field-input" placeholder="e.g. hoegarden" autocomplete="off" />
+            <span class="field-hint">Subdomain only — e.g. hoegarden, not hoegarden.grexa.ai</span>
+            <p id="subdomain-field-error" class="error-msg hidden"></p>
           </div>
           <p id="add-env-error" class="error-msg hidden"></p>
         </div>
