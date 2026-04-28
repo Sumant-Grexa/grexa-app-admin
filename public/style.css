@@ -604,6 +604,83 @@ main {
 .btn-danger:hover  { opacity: .88; }
 .btn-danger:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ── Env vars button ───────────────────────────────────────────────────────── */
+.btn-env-vars {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--border2);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  line-height: 1;
+  padding: 3px 7px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.btn-env-vars:hover { border-color: var(--accent); color: var(--accent); background: rgba(74,79,238,.06); }
+
+/* ── Env vars modal ────────────────────────────────────────────────────────── */
+.modal-box-wide {
+  width: 620px;
+  max-width: calc(100vw - 32px);
+}
+
+.env-vars-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.env-tab {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+  border-bottom-color: transparent;
+  position: relative;
+  top: 1px;
+}
+.env-tab.active {
+  background: var(--bg2);
+  color: var(--accent);
+  border-color: var(--border);
+  border-bottom-color: var(--bg2);
+}
+
+.env-vars-textarea {
+  width: 100%;
+  min-height: 220px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) var(--radius);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color .15s;
+}
+.env-vars-textarea:focus { border-color: var(--accent); }
+
+.env-vars-log-wrap {
+  border-top: 1px solid var(--border);
+  padding: 0 20px 8px;
+}
+
+.env-vars-log {
+  max-height: 180px;
+  margin-top: 10px;
+  border-radius: var(--radius);
+}
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   header    { padding: 10px 14px; }

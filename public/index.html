@@ -109,6 +109,39 @@
     </div>
   </div>
 
+  <!-- Env Vars Modal -->
+  <div id="env-vars-modal" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-header">
+        <span class="modal-title">Edit .env files — <span id="env-vars-label"></span></span>
+        <button class="modal-close" id="env-vars-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group">
+          <label class="field-label" for="env-vars-password">Password</label>
+          <input type="password" id="env-vars-password" class="field-input" placeholder="Enter env-vars password" autocomplete="current-password" />
+          <p id="env-vars-password-error" class="error-msg hidden"></p>
+        </div>
+        <div class="env-vars-tabs">
+          <button class="env-tab active" data-tab="dev">.env.dev</button>
+          <button class="env-tab" data-tab="prod">.env.prod</button>
+        </div>
+        <textarea id="env-vars-dev" class="env-vars-textarea" placeholder="KEY=value&#10;ANOTHER_KEY=another_value" spellcheck="false"></textarea>
+        <textarea id="env-vars-prod" class="env-vars-textarea hidden" placeholder="KEY=value&#10;ANOTHER_KEY=another_value" spellcheck="false"></textarea>
+        <p class="field-hint">Changes are written to disk then <code>dart run build_runner build --delete-conflicting-outputs</code> is run.</p>
+        <p id="env-vars-error" class="error-msg hidden"></p>
+      </div>
+      <div id="env-vars-log-wrap" class="env-vars-log-wrap hidden">
+        <pre id="env-vars-log" class="log-output env-vars-log"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" id="env-vars-cancel">Cancel</button>
+        <button type="button" class="btn-ghost" id="env-vars-load">Load</button>
+        <button type="button" class="btn-primary" id="env-vars-save">Save &amp; Run</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
