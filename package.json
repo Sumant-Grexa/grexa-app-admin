@@ -1,12 +1,12 @@
 {
   "name": "grexa-deployer",
   "version": "1.0.0",
-  "description": "Branch deployment utility for Grexa preprod environments",
+  "description": "Branch deployment utility for Grexa app environments",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --env-file=.env --watch server.js"
   },
   "dependencies": {
     "express": "^4.18.2",

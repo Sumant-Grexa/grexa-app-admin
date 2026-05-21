@@ -111,10 +111,26 @@
             </div>
           </div>
 
-          <!-- Release notes -->
+          <!-- Version + Release notes row -->
+          <div class="ps-fields-row">
+            <div class="field-group">
+              <label class="field-label" for="ps-version">Version</label>
+              <input type="text" id="ps-version" class="field-input" placeholder="e.g. 2.36.1" autocomplete="off" />
+              <span class="field-hint">Semver without the "v" — used for git tag</span>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="ps-notes">Release Notes</label>
+              <textarea id="ps-notes" class="field-input ps-notes" placeholder="What changed in this release?" rows="2"></textarea>
+            </div>
+          </div>
+
+          <!-- Build Runner toggle -->
           <div class="field-group">
-            <label class="field-label" for="ps-notes">Release Notes</label>
-            <textarea id="ps-notes" class="field-input ps-notes" placeholder="What changed in this release?" rows="3"></textarea>
+            <label class="ps-platform-label">
+              <input type="checkbox" id="ps-build-runner" />
+              <span>Run build_runner before build</span>
+            </label>
+            <span class="field-hint">Enable only when generated files need to be rebuilt</span>
           </div>
 
           <!-- Release password -->
