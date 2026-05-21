@@ -14,11 +14,15 @@ RestartSec=5
 Environment=DEPLOY_PASSWORD=grexa@preprod
 Environment=PORT=3456
 
-# Play Store release
+# Play Store auth
 Environment=GOOGLE_SERVICE_ACCOUNT_KEY_PATH=/etc/grexa/service-account-key.json
 Environment=PACKAGE_NAME=com.grexa.app
-Environment=AAB_PATH=/path/to/app-release.aab
 Environment=RELEASE_PASSWORD=change-me
+
+# Release pipeline
+Environment=FLUTTER_APP_REPO_PATH=/home/ubuntu/grexa-app
+Environment=GITHUB_TOKEN=ghp_changeme
+Environment=GITHUB_REPO=Grexa/grexa-mobile
 
 # Add flutter to PATH (adjust to your flutter installation path)
 Environment=PATH=/home/ubuntu/flutter/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

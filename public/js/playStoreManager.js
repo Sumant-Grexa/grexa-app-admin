@@ -142,17 +142,23 @@ export function initPlayStoreManager() {
 
     /* Build payload */
     const releasePassword = (document.getElementById("ps-password")?.value || "").trim();
+    const version = (document.getElementById("ps-version")?.value || "").trim();
     const releaseNotes = (document.getElementById("ps-notes")?.value || "").trim();
+    const runBuildRunner = document.getElementById("ps-build-runner")?.checked ?? false;
 
-    const payload = { releasePassword, platforms, releaseNotes };
+    if (!version) {
+      showError("Version is required");
+      return;
+    }
+
+    const payload = { releasePassword, version, platforms, releaseNotes, runBuildRunner };
 
     /* Android-specific fields */
     if (platforms.includes("android")) {
       const track = document.getElementById("ps-track")?.value || "production";
-      const releaseName = (document.getElementById("ps-release-name")?.value || "").trim();
       const userFractionRaw = document.getElementById("ps-rollout")?.value;
       const userFraction = userFractionRaw ? parseInt(userFractionRaw, 10) : 10;
-      payload.android = { track, releaseName, userFraction };
+      payload.android = { track, userFraction };
     }
 
     /* iOS-specific fields */
