@@ -46,6 +46,102 @@
         <!-- Items injected by JS -->
       </div>
 
+      <div class="ps-release-card">
+        <div class="ps-release-header">
+          <span class="ps-release-title">Play Store Release</span>
+          <span id="ps-status-badge" class="deploy-badge idle">IDLE</span>
+        </div>
+
+        <form id="ps-release-form" class="ps-form">
+
+          <!-- Platform checkboxes -->
+          <div class="field-group">
+            <label class="field-label">Platforms</label>
+            <div class="ps-platforms">
+              <label class="ps-platform-label">
+                <input type="checkbox" id="ps-android" name="platforms" value="android" />
+                <span>Android</span>
+              </label>
+              <label class="ps-platform-label ps-platform-disabled">
+                <input type="checkbox" id="ps-ios" name="platforms" value="ios" disabled />
+                <span>iOS <span class="ps-soon">soon</span></span>
+              </label>
+              <label class="ps-platform-label ps-platform-disabled">
+                <input type="checkbox" id="ps-web" name="platforms" value="web" disabled />
+                <span>Web <span class="ps-soon">soon</span></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Android fields (hidden until Android checked) -->
+          <div id="ps-android-fields" class="ps-platform-fields hidden">
+            <div class="ps-fields-row">
+              <div class="field-group">
+                <label class="field-label" for="ps-track">Track</label>
+                <select id="ps-track" class="field-input ps-select">
+                  <option value="internal">internal</option>
+                  <option value="alpha">alpha</option>
+                  <option value="beta">beta</option>
+                  <option value="production" selected>production</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="ps-release-name">Release Name</label>
+                <input type="text" id="ps-release-name" class="field-input" placeholder="e.g. v1.0.0" autocomplete="off" />
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="ps-rollout">Rollout — <span id="ps-rollout-label">10%</span></label>
+              <input type="range" id="ps-rollout" min="1" max="100" value="10" class="ps-slider" />
+            </div>
+          </div>
+
+          <!-- iOS fields (hidden until iOS checked) -->
+          <div id="ps-ios-fields" class="ps-platform-fields hidden">
+            <div class="field-group">
+              <label class="field-label">iOS Rollout Type</label>
+              <div class="ps-radio-group">
+                <label class="ps-radio-label">
+                  <input type="radio" name="ios-rollout-type" value="full" checked /> Full rollout
+                </label>
+                <label class="ps-radio-label">
+                  <input type="radio" name="ios-rollout-type" value="phased" /> Phased rollout
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Release notes -->
+          <div class="field-group">
+            <label class="field-label" for="ps-notes">Release Notes</label>
+            <textarea id="ps-notes" class="field-input ps-notes" placeholder="What changed in this release?" rows="3"></textarea>
+          </div>
+
+          <!-- Release password -->
+          <div class="field-group">
+            <label class="field-label" for="ps-password">Release Password</label>
+            <input type="password" id="ps-password" class="field-input" placeholder="Enter release password" autocomplete="current-password" />
+          </div>
+
+          <p id="ps-error" class="error-msg hidden"></p>
+
+          <!-- Submit -->
+          <div class="ps-submit-wrap">
+            <button type="submit" id="ps-release-btn" class="btn-release">⚠ Release</button>
+            <span class="ps-warn-text">This will publish to production. Double-check before releasing.</span>
+          </div>
+
+        </form>
+
+        <!-- Log -->
+        <div id="ps-log-wrap" class="ps-log-wrap hidden">
+          <div class="log-header">
+            <span>Release Log</span>
+          </div>
+          <pre id="ps-log-output" class="log-output"></pre>
+        </div>
+      </div>
+
       <div id="log-panel" class="log-panel hidden">
         <div class="log-header">
           <span id="log-title">Deploy Log</span>
@@ -142,6 +238,7 @@
     </div>
   </div>
 
+  <script type="module" src="js/playStoreManager.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

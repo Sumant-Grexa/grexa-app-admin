@@ -1,2 +1,5 @@
 node_modules
 .env
+*.json.key
+service-account-key.json
+*service-account*.json
