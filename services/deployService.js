@@ -1,7 +1,7 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import simpleGit from "simple-git";
-import ENVS from "../config/environments.js";
+import { getEnvs } from "../config/environments.js";
 
 const execAsync = promisify(exec);
 
@@ -40,7 +40,7 @@ function setState(envId, patch) {
 
 /** @param {string} envId */
 async function runDeploy(envId) {
-  const env = ENVS[envId];
+  const env = getEnvs()[envId];
   const git = simpleGit(env.repoPath);
   const log = [];
 
@@ -57,9 +57,35 @@ async function runDeploy(envId) {
     append(`Fetching latest from remote...`);
     await git.fetch(["--prune"]);
 
+    append(`Discarding local changes...`);
+    await git.reset(["--hard"]);
+    await git.clean("f", ["-d"]);
+
     append(`Checking out branch: ${targetBranch}`);
     await git.checkout(targetBranch);
     await git.pull("origin", targetBranch, ["--ff-only"]);
+
+    append(`Running dart run build_runner build --delete-conflicting-outputs`);
+    await new Promise((resolve, reject) => {
+      const child = exec(
+        `dart run build_runner build --delete-conflicting-outputs`,
+        { cwd: env.repoPath }
+      );
+
+      const pipe = (/** @type {unknown} */ data) =>
+        String(data)
+          .trim()
+          .split("\n")
+          .forEach((l) => l && append(`  ${l}`));
+
+      child.stdout?.on("data", pipe);
+      child.stderr?.on("data", pipe);
+      child.on("close", (code) =>
+        code === 0
+          ? resolve(undefined)
+          : reject(new Error(`build_runner exited with code ${code}`))
+      );
+    });
 
     append(`Running flutter build web --dart-define=FLAVOR=${env.flavor}`);
     await new Promise((resolve, reject) => {
