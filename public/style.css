@@ -829,3 +829,26 @@ main {
 .ps-log-wrap {
   border-top: 1px solid var(--border);
 }
+
+.btn-release-header {
+  background: #d32f2f;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity .15s;
+  letter-spacing: .01em;
+}
+.btn-release-header:hover { opacity: .88; }
+
+.ps-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

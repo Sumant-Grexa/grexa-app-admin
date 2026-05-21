@@ -92,6 +92,18 @@ function startPolling() {
 
 /* ── Init ───────────────────────────────────────────────────────────────────── */
 export function initPlayStoreManager() {
+  /* Release App modal open/close */
+  const modal = document.getElementById("release-app-modal");
+  document.getElementById("release-app-btn")?.addEventListener("click", () => {
+    modal?.classList.remove("hidden");
+  });
+  document.getElementById("release-app-close")?.addEventListener("click", () => {
+    modal?.classList.add("hidden");
+  });
+  modal?.addEventListener("click", (e) => {
+    if (e.target === modal) modal.classList.add("hidden");
+  });
+
   /* Android checkbox → show/hide android fields */
   const androidCheckbox = document.getElementById("ps-android");
   const androidFields = document.getElementById("ps-android-fields");
@@ -115,15 +127,6 @@ export function initPlayStoreManager() {
       } else {
         iosFields.classList.add("hidden");
       }
-    });
-  }
-
-  /* Rollout slider → live label update */
-  const rolloutSlider = document.getElementById("ps-rollout");
-  const rolloutLabel = document.getElementById("ps-rollout-label");
-  if (rolloutSlider && rolloutLabel) {
-    rolloutSlider.addEventListener("input", () => {
-      rolloutLabel.textContent = rolloutSlider.value + "%";
     });
   }
 
