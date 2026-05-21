@@ -24,5 +24,44 @@
       "user": "sumant",
       "path": "/var/www/preprod-app/bira-web"
     }
+  },
+  "corona": {
+    "id": "corona",
+    "label": "corona",
+    "subdomain": "corona",
+    "repoPath": "/home/ubuntu/grexa-app/corona-web",
+    "buildOutput": "/home/ubuntu/grexa-app/corona-web/build/web",
+    "flavor": "dev",
+    "remote": {
+      "host": "34.47.166.243",
+      "user": "sumant",
+      "path": "/var/www/preprod-app/corona-web"
+    }
+  },
+  "hoegarden": {
+    "id": "hoegarden",
+    "label": "hoegarden",
+    "subdomain": "hoegarden",
+    "repoPath": "/home/ubuntu/grexa-app/hoegarden-web",
+    "buildOutput": "/home/ubuntu/grexa-app/hoegarden-web/build/web",
+    "flavor": "dev",
+    "remote": {
+      "host": "34.47.166.243",
+      "user": "sumant",
+      "path": "/var/www/preprod-app/hoegarden-web"
+    }
+  },
+  "carlsberg": {
+    "id": "carlsberg",
+    "label": "carlsberg",
+    "subdomain": "carlsberg",
+    "repoPath": "/home/ubuntu/grexa-app/carlsberg-web",
+    "buildOutput": "/home/ubuntu/grexa-app/carlsberg-web/build/web",
+    "flavor": "dev",
+    "remote": {
+      "host": "34.47.166.243",
+      "user": "sumant",
+      "path": "/var/www/preprod-app/carlsberg-web"
+    }
   }
 }
