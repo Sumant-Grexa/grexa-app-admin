@@ -3,8 +3,8 @@ export class ReleaseStep {
     return this.constructor.name;
   }
 
-  /** @param {import("../releaseContext.js").ReleaseContext} ctx */
-  async run(ctx) {
+  /** @param {import("../releaseContext.js").ReleaseContext} _ctx */
+  async run(_ctx) {
     throw new Error(`${this.name}.run() not implemented`);
   }
 
