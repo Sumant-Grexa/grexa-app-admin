@@ -5,14 +5,18 @@ import { getReleaseConfig } from "../../config/releaseConfig.js";
  * @typedef {{
  *   version: string,
  *   releaseNotes: string,
+ *   platforms: string[],
+ *   iosReleaseType: "full" | "phased" | "manual",
  *   track: string,
  *   userFraction: number,
  *   runBuildRunner: boolean,
  *   repoPath: string,
  *   aabPath: string,
  *   ipaPath: string,
- *   versionCode: number | null,
- *   editId: string | null,
+ *   android: { versionCode: number | null, editId: string | null },
+ *   ios: { buildId: string | null, versionId: string | null },
+ *   web: {},
+ *   platformErrors: Record<string, string>,
  *   tagName: string | null,
  *   githubNotes: string | null,
  *   log: string[],
@@ -21,7 +25,7 @@ import { getReleaseConfig } from "../../config/releaseConfig.js";
  */
 
 /**
- * @param {{ version: string, releaseNotes: string, track: string, userFraction: number, runBuildRunner: boolean }} options
+ * @param {{ version: string, releaseNotes: string, platforms: string[], iosReleaseType: string, track: string, userFraction: number, runBuildRunner: boolean }} options
  * @returns {ReleaseContext}
  */
 export function createReleaseContext(options) {
@@ -29,10 +33,12 @@ export function createReleaseContext(options) {
 
   const ctx = {
     // inputs
-    version: options.version,
-    releaseNotes: options.releaseNotes ?? "",
-    track: options.track ?? "production",
-    userFraction: options.userFraction ?? 0.1,
+    version:        options.version,
+    releaseNotes:   options.releaseNotes ?? "",
+    platforms:      options.platforms ?? ["android"],
+    iosReleaseType: options.iosReleaseType ?? "full",
+    track:          options.track ?? "production",
+    userFraction:   options.userFraction ?? 0.1,
     runBuildRunner: options.runBuildRunner ?? false,
 
     // derived paths
@@ -40,10 +46,16 @@ export function createReleaseContext(options) {
     aabPath: join(repoPath, "build/app/outputs/bundle/prodRelease/app-prod-release.aab"),
     ipaPath: join(repoPath, "build/ios/ipa/Runner.ipa"),
 
-    // output slots — filled by steps
-    versionCode: null,
-    editId: null,
-    tagName: null,
+    // namespaced output slots — each platform only writes its own namespace
+    android: { versionCode: null, editId: null },
+    ios:     { buildId: null, versionId: null },
+    web:     {},
+
+    // per-platform error tracking
+    platformErrors: {},
+
+    // finalization slots
+    tagName:     null,
     githubNotes: null,
 
     // live log
