@@ -10,19 +10,8 @@ ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=5
 
-# Real secrets live in /etc/grexa/deployer.env on the server (not in git)
+# All env vars live in /etc/grexa/deployer.env on the server (not in git)
 EnvironmentFile=/etc/grexa/deployer.env
-
-# Non-secret defaults (override in deployer.env if needed)
-Environment=PORT=3456
-Environment=PACKAGE_NAME=com.grexa.app
-Environment=FLUTTER_APP_REPO_PATH=/home/ubuntu/grexa-app
-Environment=GITHUB_REPO=Grexa/grexa-mobile
-Environment=GOOGLE_SERVICE_ACCOUNT_KEY_PATH=/etc/grexa/service-account-key.json
-Environment=ASC_PRIVATE_KEY_PATH=/etc/grexa/AuthKey_8UMTL8VW23.p8
-
-# Add flutter to PATH (adjust to your flutter installation path)
-Environment=PATH=/home/ubuntu/flutter/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
 WantedBy=multi-user.target
