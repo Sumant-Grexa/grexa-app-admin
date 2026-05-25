@@ -3,3 +3,4 @@ node_modules
 *.json.key
 service-account-key.json
 *service-account*.json
+*.p8

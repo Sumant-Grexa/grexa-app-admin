@@ -2,7 +2,7 @@ import { getReleasePassword } from "../config/playStore.js";
 import { releaseState, runReleasePipeline } from "../services/release/pipeline.js";
 
 function startRelease(req, res) {
-  const { releasePassword, version, releaseNotes, runBuildRunner, platforms, android } = req.body;
+  const { releasePassword, version, releaseNotes, runBuildRunner, platforms, android, ios } = req.body;
 
   if (releasePassword !== getReleasePassword()) {
     return res.status(401).json({ error: "Invalid release password" });
@@ -25,12 +25,21 @@ function startRelease(req, res) {
     if (android?.userFraction == null) return res.status(400).json({ error: "android.userFraction is required" });
   }
 
+  if (platforms.includes("ios")) {
+    const validRolloutTypes = ["full", "phased", "manual"];
+    if (!validRolloutTypes.includes(ios?.rolloutType)) {
+      return res.status(400).json({ error: "ios.rolloutType must be 'full', 'phased', or 'manual'" });
+    }
+  }
+
   runReleasePipeline({
     version,
-    releaseNotes: releaseNotes ?? "",
-    track: android?.track ?? "production",
-    userFraction: Number(android?.userFraction ?? 10) / 100,
+    releaseNotes:   releaseNotes ?? "",
+    platforms,
+    track:          android?.track ?? "production",
+    userFraction:   Number(android?.userFraction ?? 10) / 100,
     runBuildRunner: runBuildRunner === true,
+    iosReleaseType: ios?.rolloutType ?? "full",
   });
 
   res.json({ ok: true, message: `Release v${version} started` });

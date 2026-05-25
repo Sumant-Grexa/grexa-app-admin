@@ -12,12 +12,12 @@ export class PlayStoreUploadStep extends ReleaseStep {
     ctx.append("Access token obtained");
 
     ctx.append("Creating edit session...");
-    ctx.editId = await createEditSession(accessToken, packageName);
-    ctx.append(`editId=${ctx.editId}`);
+    ctx.android.editId = await createEditSession(accessToken, packageName);
+    ctx.append(`editId=${ctx.android.editId}`);
 
     ctx.append(`Uploading AAB...`);
-    ctx.versionCode = await uploadAAB(accessToken, packageName, ctx.editId, ctx.aabPath);
-    ctx.append(`versionCode=${ctx.versionCode}`);
+    ctx.android.versionCode = await uploadAAB(accessToken, packageName, ctx.android.editId, ctx.aabPath);
+    ctx.append(`versionCode=${ctx.android.versionCode}`);
 
     ctx.append("Updating track...");
     await updateTrack(accessToken, packageName, ctx.editId, ctx.versionCode, {
