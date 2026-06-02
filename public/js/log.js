@@ -62,7 +62,6 @@ function closeTab(envId) {
   }
   if (Object.keys(openTabs).length === 0) {
     getDrawer().classList.add("hidden");
-    document.getElementById("app-screen").classList.remove("drawer-open");
     activeTabId = null;
   } else {
     renderTabs();
@@ -99,7 +98,6 @@ export async function openLog(envId, label) {
   }
   activeTabId = envId;
   getDrawer().classList.remove("hidden");
-  document.getElementById("app-screen").classList.add("drawer-open");
   renderTabs();
   await refreshLog(envId);
 }

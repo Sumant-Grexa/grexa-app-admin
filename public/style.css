@@ -189,17 +189,12 @@ main {
   flex: 1;
   overflow-y: auto;
   padding: 24px 28px;
-  transition: margin-right .3s ease;
-}
-
-#app-screen.drawer-open main {
-  margin-right: 380px;
 }
 
 /* ── Env grid ──────────────────────────────────────────────────────────────── */
 .env-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 
@@ -261,20 +256,51 @@ main {
 .deploy-badge.success   { color: var(--green);   border-color: #86efac;        background: #f0fdf4; }
 .deploy-badge.error     { color: var(--red);     border-color: #fca5a5;        background: #fef2f2; }
 
-/* card meta: subdomain · branch */
-.card-meta {
+/* branch row — full width, truncates cleanly */
+.card-branch-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.card-branch-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: .7;
+}
+.card-branch {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* commit row: subdomain · author · hash */
+.card-commit-row {
   display: flex;
   align-items: center;
   gap: 5px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted);
+  min-width: 0;
 }
-.card-subdomain { color: var(--muted); }
-.card-dot       { color: var(--border2); }
-.card-branch    { color: var(--accent); }
-.card-author    { color: var(--muted); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-hash      { color: var(--border2); margin-left: 3px; }
+.card-author-icon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--muted);
+  opacity: .6;
+}
+.card-dot { color: var(--border2); flex-shrink: 0; }
+.card-author    { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-hash      { color: var(--border2); white-space: nowrap; flex-shrink: 0; }
+
 
 /* card time */
 .card-time {
@@ -828,12 +854,14 @@ main {
 }
 
 /* ── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .env-grid { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 700px) {
   header   { padding: 10px 14px; }
   main     { padding: 14px 12px; }
   .env-grid { grid-template-columns: 1fr; }
   .log-drawer { width: 100%; border-left: none; border-top: 1px solid var(--border); top: auto; height: 50vh; }
-  #app-screen.drawer-open main { margin-right: 0; padding-bottom: 50vh; }
 }
 
 /* ── Play Store release card ───────────────────────────────────────────────── */

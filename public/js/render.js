@@ -98,19 +98,34 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
         </div>
       </div>
 
-      <div class="card-meta">
-        <span class="card-subdomain">${esc(env.subdomain)}</span>
-        <span class="card-dot">·</span>
-        <span class="card-branch" id="branch-live-${id}">${esc(branch)}</span>
-        ${env.lastCommit ? `<span class="card-dot">·</span><span class="card-author" title="Last commit author">${esc(env.lastCommit.author)}</span><span class="card-hash">${esc(env.lastCommit.hash)}</span>` : ""}
+      <div class="card-branch-row">
+        <svg class="card-branch-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="5" cy="4" r="1.5" stroke="currentColor" stroke-width="1.4"/>
+          <circle cx="11" cy="4" r="1.5" stroke="currentColor" stroke-width="1.4"/>
+          <circle cx="5" cy="12" r="1.5" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M5 5.5v5M11 5.5c0 2-1.5 4-6 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <span class="card-branch" id="branch-live-${id}" title="${esc(branch)}">${esc(branch)}</span>
+      </div>
+
+      <div class="card-commit-row">
+        ${env.lastCommit ? `
+          <svg class="card-author-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M2.5 13c0-3 2-4.5 5.5-4.5s5.5 1.5 5.5 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span class="card-author" title="${esc(env.lastCommit.author)}">${esc(env.lastCommit.author)}</span>
+          <span class="card-dot">·</span>
+          <span class="card-hash">${esc(env.lastCommit.hash)}</span>
+        ` : ""}
       </div>
 
       <div class="card-time">
         ${deploy
-          ? deploy.status === "deploying"
-            ? `<span class="time-deploying">Started ${timeAgo(deploy.startedAt)}</span>`
-            : `Last deploy <strong>${timeAgo(deploy.finishedAt)}</strong>`
-          : '<span class="time-none">No deploys yet</span>'}
+        ? deploy.status === "deploying"
+          ? `<span class="time-deploying">⬤ Deploying · started ${timeAgo(deploy.startedAt)}</span>`
+          : `Last deploy <strong>${timeAgo(deploy.finishedAt)}</strong>`
+        : '<span class="time-none">No deploys yet</span>'}
       </div>
 
       <div class="card-deploy-row">
@@ -148,11 +163,11 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
     list.appendChild(card);
 
     // ── Dropdown wiring ──────────────────────────────────────────────────────
-    const trigger   = document.getElementById(`selector-trigger-${id}`);
-    const dropdown  = document.getElementById(`dropdown-${id}`);
-    const searchEl  = document.getElementById(`search-${id}`);
-    const optsEl    = document.getElementById(`options-${id}`);
-    const wrap      = document.getElementById(`select-wrap-${id}`);
+    const trigger = document.getElementById(`selector-trigger-${id}`);
+    const dropdown = document.getElementById(`dropdown-${id}`);
+    const searchEl = document.getElementById(`search-${id}`);
+    const optsEl = document.getElementById(`options-${id}`);
+    const wrap = document.getElementById(`select-wrap-${id}`);
     const deployBtn = document.getElementById(`deploy-${id}`);
 
     trigger.addEventListener("click", (e) => {

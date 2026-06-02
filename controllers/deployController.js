@@ -8,35 +8,37 @@ import { deployState, getBranches, setState, runDeploy } from "../services/deplo
  * @param {import("express").Response} res
  */
 async function getStatus(_req, res) {
-  const result = {};
+  const envEntries = Object.entries(getEnvs()); // preserve definition order
 
-  await Promise.all(
-    Object.entries(getEnvs()).map(async ([id, env]) => {
+  const settled = await Promise.all(
+    envEntries.map(async ([id, env]) => {
       try {
         const git = simpleGit(env.repoPath);
         const [branchSummary, log] = await Promise.all([
           git.branch(),
           git.log(["-1"]).catch(() => null),
         ]);
-        result[id] = {
+        return [id, {
           ...env,
           currentBranch: branchSummary.current,
           lastCommit: log?.latest
             ? { author: log.latest.author_name, hash: log.latest.hash.slice(0, 7) }
             : null,
           deploy: deployState[id] ?? null,
-        };
+        }];
       } catch (err) {
-        result[id] = {
+        return [id, {
           ...env,
           currentBranch: null,
           error: err instanceof Error ? err.message : String(err),
           deploy: deployState[id] ?? null,
-        };
+        }];
       }
     })
   );
 
+  // rebuild in original key order
+  const result = Object.fromEntries(settled);
   res.json(result);
 }
 
