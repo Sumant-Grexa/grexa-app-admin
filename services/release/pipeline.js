@@ -31,8 +31,9 @@ async function ghFetch(method, path, token, body) {
 }
 
 async function dispatchWorkflow(token, repo, workflow, inputs) {
+  const ref = process.env.GITHUB_RELEASE_BRANCH || "master";
   await ghFetch("POST", `/repos/${repo}/actions/workflows/${workflow}/dispatches`, token, {
-    ref: "master",
+    ref,
     inputs,
   });
 }
