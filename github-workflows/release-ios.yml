@@ -1,0 +1,77 @@
+name: Release iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string (e.g. 2.36.1)"
+        required: true
+      release_notes:
+        description: "What's new text"
+        required: false
+        default: ""
+      rollout_type:
+        description: "Release type: full | phased | manual"
+        required: false
+        default: "full"
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.32.8"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        run: cd ios && pod install
+
+      - name: Set flavor
+        run: bash scripts/set-flavor.sh prod
+
+      - name: Build IPA
+        run: flutter build ipa --flavor prod -t lib/main_prod.dart
+
+      - name: Upload to App Store via Transporter
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          echo "$ASC_PRIVATE_KEY" > /tmp/AuthKey.p8
+          xcrun transporter \
+            -m upload \
+            -f "build/ios/ipa/Runner.ipa" \
+            -apiKey "$ASC_KEY_ID" \
+            -apiIssuer "$ASC_ISSUER_ID"
+          rm -f /tmp/AuthKey.p8
+
+      - name: Submit to App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          VERSION_STRING: ${{ inputs.version }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          ROLLOUT_TYPE: ${{ inputs.rollout_type }}
+        run: node .github/scripts/asc-submit.mjs
+
+      - name: Create Git tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}" || true
+          git push origin "v${{ inputs.version }}" || true

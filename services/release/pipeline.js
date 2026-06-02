@@ -1,193 +1,183 @@
-import { createReleaseContext } from "./releaseContext.js";
-import { GitCheckoutStep } from "./steps/GitCheckoutStep.js";
-import { SetFlavorStep } from "./steps/SetFlavorStep.js";
-// import { BuildRunnerStep } from "./steps/BuildRunnerStep.js";  // enable when needed
-import { FlutterBuildAndroidStep } from "./steps/FlutterBuildAndroidStep.js";
-import { FlutterBuildIosStep } from "./steps/FlutterBuildIosStep.js";
-import { FlutterBuildWebStep } from "./steps/FlutterBuildWebStep.js";
-import { PlayStoreUploadStep } from "./steps/PlayStoreUploadStep.js";
-import { AppStoreUploadStep } from "./steps/AppStoreUploadStep.js";
-import { AppStoreConnectStep } from "./steps/AppStoreConnectStep.js";
-import { WebDeployStep } from "./steps/WebDeployStep.js";
-import { GitTagStep } from "./steps/GitTagStep.js";
-import { GitHubNotesStep } from "./steps/GitHubNotesStep.js";
+import { getReleaseConfig } from "../../config/releaseConfig.js";
 
-// ─── PlatformLane ─────────────────────────────────────────────────────────────
-// Named sequential chain of steps for one platform.
-class PlatformLane {
-  constructor(platform, steps) {
-    this.platform = platform;
-    this._steps = steps;
-  }
-
-  async execute(ctx) {
-    for (const step of this._steps) {
-      await step.execute(ctx);
-    }
-  }
-}
-
-// ─── ParallelPlatformGroup ────────────────────────────────────────────────────
-// Runs all lanes concurrently via Promise.all.
-// The first lane to complete successfully runs finalization (tag + release notes)
-// exactly once. Other lanes continue running regardless.
-// Only throws if every active lane fails.
-class ParallelPlatformGroup {
-  constructor(lanes, finalizationSteps) {
-    this._lanes = lanes;
-    this._finalizationSteps = finalizationSteps;
-  }
-
-  async execute(ctx) {
-    let finalized = false;
-
-    const runLane = async (lane) => {
-      if (!ctx.platforms.includes(lane.platform)) {
-        ctx.append(`[${lane.platform}] skipped`);
-        return;
-      }
-
-      ctx.append(`[${lane.platform}] ▶ starting`);
-      try {
-        await lane.execute(ctx);
-        ctx.append(`[${lane.platform}] ✓ complete`);
-
-        if (!finalized) {
-          finalized = true;
-          ctx.append(`[${lane.platform}] first done — creating release tag...`);
-          for (const step of this._finalizationSteps) {
-            await step.execute(ctx);
-          }
-        }
-      } catch (err) {
-        ctx.append(`[${lane.platform}] ✗ failed: ${err.message}`);
-        ctx.platformErrors[lane.platform] = err.message;
-      }
-    };
-
-    await Promise.all(this._lanes.map(runLane));
-
-    const active = this._lanes.filter((l) => ctx.platforms.includes(l.platform));
-    const allFailed = active.length > 0 && active.every((l) => ctx.platformErrors[l.platform]);
-    if (allFailed) {
-      throw new Error(
-        `All platform releases failed: ${Object.entries(ctx.platformErrors)
-          .map(([p, e]) => `${p}: ${e}`)
-          .join("; ")}`
-      );
-    }
-  }
-}
-
-// ─── Pipeline ─────────────────────────────────────────────────────────────────
-class Pipeline {
-  constructor(preamble, parallelGroup) {
-    this._preamble = preamble;
-    this._group = parallelGroup;
-  }
-
-  async run(ctx) {
-    for (const step of this._preamble) {
-      await step.execute(ctx);
-    }
-    await this._group.execute(ctx);
-  }
-}
-
-// ─── ReleasePipelineBuilder ───────────────────────────────────────────────────
-class ReleasePipelineBuilder {
-  constructor() {
-    this._preamble = [];
-    this._lanes = [];
-    this._finalization = [];
-  }
-
-  addPreambleStep(step) {
-    this._preamble.push(step);
-    return this;
-  }
-
-  addLane(platform, steps) {
-    this._lanes.push(new PlatformLane(platform, steps));
-    return this;
-  }
-
-  addFinalizationStep(step) {
-    this._finalization.push(step);
-    return this;
-  }
-
-  build() {
-    return new Pipeline(
-      this._preamble,
-      new ParallelPlatformGroup(this._lanes, this._finalization)
-    );
-  }
-}
-
-// ─── Release State ────────────────────────────────────────────────────────────
+// ─── Release State ─────────────────────────────────────────────────────────────
 export const releaseState = {
-  status: "idle",       // 'idle' | 'running' | 'success' | 'error'
+  status: "idle",   // 'idle' | 'running' | 'success' | 'error'
   log: [],
   startedAt: null,
   finishedAt: null,
-  android: { versionCode: null },
-  ios: { versionId: null },
+  android: { runId: null },
+  ios: { runId: null },
   tagName: null,
 };
 
-// ─── Facade ───────────────────────────────────────────────────────────────────
+// ─── GitHub API helpers ────────────────────────────────────────────────────────
+async function ghFetch(method, path, token, body) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`GitHub ${method} ${path} → ${res.status}: ${JSON.stringify(err.message ?? err)}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function dispatchWorkflow(token, repo, workflow, inputs) {
+  await ghFetch("POST", `/repos/${repo}/actions/workflows/${workflow}/dispatches`, token, {
+    ref: "master",
+    inputs,
+  });
+}
+
+// Finds the first run for `workflow` whose created_at is at or after `afterMs`.
+// Retries for up to ~30 s to account for GitHub's run creation delay.
+async function getLatestRunId(token, repo, workflow, afterMs) {
+  for (let i = 0; i < 15; i++) {
+    const data = await ghFetch(
+      "GET",
+      `/repos/${repo}/actions/workflows/${workflow}/runs?per_page=5`,
+      token
+    );
+    const run = data.workflow_runs?.find(
+      (r) => new Date(r.created_at).getTime() >= afterMs
+    );
+    if (run) return run.id;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  throw new Error(`Could not find dispatched run for workflow "${workflow}" after 45 s`);
+}
+
+// Polls a run every 15 s for up to 30 min, resolves on success, rejects on failure.
+async function pollRun(token, repo, runId, append, label, intervalMs = 15000, maxAttempts = 120) {
+  for (let i = 1; i <= maxAttempts; i++) {
+    const run = await ghFetch("GET", `/repos/${repo}/actions/runs/${runId}`, token);
+    const { status, conclusion } = run;
+    append(`[${label}] run ${runId}: ${status}${conclusion ? ` / ${conclusion}` : ""}`);
+
+    if (status === "completed") {
+      if (conclusion === "success") return;
+      throw new Error(`[${label}] workflow run failed: ${conclusion}`);
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`[${label}] timed out after ${(maxAttempts * intervalMs) / 60000} min`);
+}
+
+// ─── Facade ────────────────────────────────────────────────────────────────────
 export async function runReleasePipeline(options) {
-  const ctx = createReleaseContext(options);
+  const { githubToken, githubRepo } = getReleaseConfig();
+  const log = [];
+  const append = (line) => { log.push(line); console.log(`[release] ${line}`); };
 
   Object.assign(releaseState, {
     status: "running",
-    log: ctx.log,
+    log,
     startedAt: new Date().toISOString(),
     finishedAt: null,
-    android: { versionCode: null },
-    ios: { versionId: null },
+    android: { runId: null },
+    ios: { runId: null },
     tagName: null,
   });
 
-  const pipeline = new ReleasePipelineBuilder()
-    // Preamble — sequential, shared across all platforms
-    .addPreambleStep(new GitCheckoutStep())
-    .addPreambleStep(new SetFlavorStep())
-    // .addPreambleStep(new BuildRunnerStep())  // enable when needed
-
-    // Platform lanes — run concurrently after preamble completes
-    .addLane("android", [
-      new FlutterBuildAndroidStep(),
-      new PlayStoreUploadStep(),
-    ])
-    .addLane("ios", [
-      new FlutterBuildIosStep(),
-      new AppStoreUploadStep(),
-      new AppStoreConnectStep(),
-    ])
-    .addLane("web", [
-      new FlutterBuildWebStep(),
-      new WebDeployStep(),
-    ])
-
-    // Finalization — runs once, triggered by the first lane to complete successfully
-    .addFinalizationStep(new GitTagStep())
-    .addFinalizationStep(new GitHubNotesStep())
-
-    .build();
-
   try {
-    await pipeline.run(ctx);
+    const { version, releaseNotes, platforms, track, userFraction, iosReleaseType } = options;
+    const tagName = `v${version}`;
+    const dispatchedAt = Date.now();
+
+    // ── Dispatch ──────────────────────────────────────────────────────────────
+    const dispatches = [];
+
+    if (platforms.includes("android")) {
+      append("Dispatching Android release workflow…");
+      dispatches.push(
+        dispatchWorkflow(githubToken, githubRepo, "release-android.yml", {
+          version,
+          release_notes: releaseNotes,
+          track: track ?? "production",
+          user_fraction: String(Math.round((userFraction ?? 0.1) * 100)),
+        }).then(() => append("[android] workflow dispatched"))
+      );
+    }
+
+    if (platforms.includes("ios")) {
+      append("Dispatching iOS release workflow…");
+      dispatches.push(
+        dispatchWorkflow(githubToken, githubRepo, "release-ios.yml", {
+          version,
+          release_notes: releaseNotes,
+          rollout_type: iosReleaseType ?? "full",
+        }).then(() => append("[ios] workflow dispatched"))
+      );
+    }
+
+    await Promise.all(dispatches);
+
+    // ── Resolve run IDs ───────────────────────────────────────────────────────
+    const runIdFetches = [];
+
+    if (platforms.includes("android")) {
+      runIdFetches.push(
+        getLatestRunId(githubToken, githubRepo, "release-android.yml", dispatchedAt).then(
+          (id) => {
+            releaseState.android.runId = id;
+            append(`[android] run ID: ${id}`);
+            return { platform: "android", id };
+          }
+        )
+      );
+    }
+
+    if (platforms.includes("ios")) {
+      runIdFetches.push(
+        getLatestRunId(githubToken, githubRepo, "release-ios.yml", dispatchedAt).then(
+          (id) => {
+            releaseState.ios.runId = id;
+            append(`[ios] run ID: ${id}`);
+            return { platform: "ios", id };
+          }
+        )
+      );
+    }
+
+    const runIds = await Promise.all(runIdFetches);
+
+    // ── Poll concurrently ─────────────────────────────────────────────────────
+    const results = await Promise.all(
+      runIds.map(({ platform, id }) =>
+        pollRun(githubToken, githubRepo, id, append, platform)
+          .then(() => ({ platform, ok: true }))
+          .catch((err) => ({ platform, ok: false, error: err.message }))
+      )
+    );
+
+    const failed = results.filter((r) => !r.ok);
+    const succeeded = results.filter((r) => r.ok);
+
+    for (const f of failed) append(`[${f.platform}] ✗ ${f.error}`);
+    for (const s of succeeded) append(`[${s.platform}] ✓ complete`);
+
+    if (succeeded.length === 0) {
+      throw new Error(
+        `All workflows failed: ${failed.map((f) => `${f.platform}: ${f.error}`).join("; ")}`
+      );
+    }
+
     Object.assign(releaseState, {
       status: "success",
       finishedAt: new Date().toISOString(),
-      android: { versionCode: ctx.android.versionCode },
-      ios: { versionId: ctx.ios.versionId },
-      tagName: ctx.tagName,
+      tagName,
     });
   } catch (err) {
-    ctx.append(`Pipeline failed: ${err.message}`);
+    append(`Pipeline failed: ${err.message}`);
     Object.assign(releaseState, { status: "error", finishedAt: new Date().toISOString() });
   }
 }

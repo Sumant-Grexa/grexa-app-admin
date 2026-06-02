@@ -1,13 +1,11 @@
 function loadConfig() {
-  const repoPath = process.env.FLUTTER_APP_REPO_PATH;
   const githubToken = process.env.GITHUB_TOKEN;
-  const githubRepo = process.env.GITHUB_REPO;
+  const githubRepo  = process.env.GITHUB_REPO;
 
-  if (!repoPath) throw new Error("Missing env var: FLUTTER_APP_REPO_PATH");
   if (!githubToken) throw new Error("Missing env var: GITHUB_TOKEN");
-  if (!githubRepo) throw new Error("Missing env var: GITHUB_REPO");
+  if (!githubRepo)  throw new Error("Missing env var: GITHUB_REPO");
 
-  return Object.freeze({ repoPath, githubToken, githubRepo });
+  return Object.freeze({ githubToken, githubRepo });
 }
 
 let _config = null;
