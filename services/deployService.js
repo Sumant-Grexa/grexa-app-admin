@@ -65,27 +65,26 @@ async function runDeploy(envId) {
     await git.checkout(targetBranch);
     await git.pull("origin", targetBranch, ["--ff-only"]);
 
-    append(`Running dart run build_runner build --delete-conflicting-outputs`);
-    await new Promise((resolve, reject) => {
-      const child = exec(
-        `dart run build_runner build --delete-conflicting-outputs`,
-        { cwd: env.repoPath }
-      );
+    const { runBuildRunner } = deployState[envId];
+    if (runBuildRunner) {
+      const runCmd = (cmd) =>
+        new Promise((resolve, reject) => {
+          append(`Running ${cmd}`);
+          const child = exec(cmd, { cwd: env.repoPath });
+          const pipe = (/** @type {unknown} */ data) =>
+            String(data).trim().split("\n").forEach((l) => l && append(`  ${l}`));
+          child.stdout?.on("data", pipe);
+          child.stderr?.on("data", pipe);
+          child.on("close", (code) =>
+            code === 0 ? resolve(undefined) : reject(new Error(`"${cmd}" exited with code ${code}`))
+          );
+        });
 
-      const pipe = (/** @type {unknown} */ data) =>
-        String(data)
-          .trim()
-          .split("\n")
-          .forEach((l) => l && append(`  ${l}`));
-
-      child.stdout?.on("data", pipe);
-      child.stderr?.on("data", pipe);
-      child.on("close", (code) =>
-        code === 0
-          ? resolve(undefined)
-          : reject(new Error(`build_runner exited with code ${code}`))
-      );
-    });
+      await runCmd(`dart run build_runner clean`);
+      await runCmd(`dart run build_runner build --delete-conflicting-outputs`);
+    } else {
+      append(`Skipping build_runner (not requested)`);
+    }
 
     append(`Running flutter build web --dart-define=FLAVOR=${env.flavor}`);
     await new Promise((resolve, reject) => {

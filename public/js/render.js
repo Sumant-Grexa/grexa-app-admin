@@ -32,10 +32,6 @@ export function getBranchValue(envId) {
   return document.getElementById(`select-wrap-${envId}`)?.dataset.selected ?? "";
 }
 
-/**
- * Fills the custom dropdown options and pre-selects the current branch.
- * No restriction on redeploying the same branch.
- */
 export function populateSelect(envId, { branches, current }, disabled = false) {
   const wrap = document.getElementById(`select-wrap-${envId}`);
   if (!wrap) return;
@@ -51,12 +47,10 @@ export function populateSelect(envId, { branches, current }, disabled = false) {
     optsEl.appendChild(opt);
   });
 
-  // Pre-select current branch — deploy button enabled regardless
   if (current) {
     wrap.dataset.selected = current;
     const display = document.getElementById(`selector-display-${envId}`);
     if (display) display.textContent = current;
-    // Mark selected
     Array.from(optsEl.children).forEach((o) =>
       o.classList.toggle("selected", o.dataset.value === current)
     );
@@ -66,7 +60,6 @@ export function populateSelect(envId, { branches, current }, disabled = false) {
   if (deployBtn) deployBtn.disabled = !wrap.dataset.selected || disabled;
 }
 
-/** Call once at init — closes any open dropdown when clicking outside. */
 export function initDropdowns() {
   document.addEventListener("click", () => {
     document.querySelectorAll(".branch-dropdown:not(.hidden)").forEach((dd) =>
@@ -78,7 +71,7 @@ export function initDropdowns() {
 /**
  * @param {Record<string, any>} data
  * @param {Record<string, any>} branchCache
- * @param {{ onFetch, onDeploy, onViewLog }} callbacks
+ * @param {{ onFetch, onDeploy, onViewLog, onRemove, onEnvVars }} callbacks
  */
 export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog, onRemove, onEnvVars }) {
   const list = document.getElementById("env-list");
@@ -89,27 +82,38 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
     const isDeploying = deploy?.status === "deploying";
     const branch = env.currentBranch || "unknown";
 
-    const item = document.createElement("div");
-    item.className = `env-item ${stateClass(deploy)}`;
-    item.id = `item-${id}`;
+    const card = document.createElement("div");
+    card.className = `env-card ${stateClass(deploy)}`;
+    card.id = `item-${id}`;
 
-    item.innerHTML = `
-      <div class="env-row-top">
-        <div class="env-info">
-          <span class="env-name">${env.label}</span>
-          <span class="env-sep">·</span>
-          <span class="env-subdomain">${env.subdomain}</span>
-          <span class="env-sep">·</span>
-          <span class="env-current-branch" id="branch-live-${id}">${branch}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;">
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="env-name">${esc(env.label)}</span>
           ${badgeHTML(deploy)}
+        </div>
+        <div class="card-actions-top">
           <button class="btn-env-vars" id="envvars-${id}" title="Edit .env files">.env</button>
           <button class="btn-remove-env" id="remove-${id}" title="Remove environment" aria-label="Remove ${esc(env.label)}">&#x2715;</button>
         </div>
       </div>
 
-      <div class="env-row-actions">
+      <div class="card-meta">
+        <span class="card-subdomain">${esc(env.subdomain)}</span>
+        <span class="card-dot">·</span>
+        <span class="card-branch" id="branch-live-${id}">${esc(branch)}</span>
+        ${env.lastCommit ? `<span class="card-dot">·</span><span class="card-author" title="Last commit author">${esc(env.lastCommit.author)}</span><span class="card-hash">${esc(env.lastCommit.hash)}</span>` : ""}
+      </div>
+
+      <div class="card-time">
+        ${deploy
+          ? deploy.status === "deploying"
+            ? `<span class="time-deploying">Started ${timeAgo(deploy.startedAt)}</span>`
+            : `Last deploy <strong>${timeAgo(deploy.finishedAt)}</strong>`
+          : '<span class="time-none">No deploys yet</span>'}
+      </div>
+
+      <div class="card-deploy-row">
         <div class="branch-selector-wrap" id="select-wrap-${id}" data-selected="">
           <button type="button" class="selector-trigger" id="selector-trigger-${id}" ${isDeploying ? "disabled" : ""}>
             <span class="selector-display" id="selector-display-${id}">— fetch branches —</span>
@@ -124,29 +128,26 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
             <div class="dropdown-options" id="options-${id}"></div>
           </div>
         </div>
-
         <button class="btn-fetch" id="fetch-${id}" ${isDeploying ? "disabled" : ""}>Fetch</button>
-        <div class="btn-action-sep"></div>
-        <button class="btn-deploy" id="deploy-${id}" disabled>
-          ${isDeploying ? "Deploying..." : "Deploy"}
-        </button>
-        ${deploy ? `<button class="btn-view-log" id="log-${id}">Log</button>` : ""}
       </div>
 
-      <div class="env-row-footer">
-        <span class="footer-meta">
-          ${deploy
-            ? deploy.status === "deploying"
-              ? `Started ${timeAgo(deploy.startedAt)}`
-              : `Last: <strong>${timeAgo(deploy.finishedAt)}</strong>`
-            : "No deploys yet"}
-        </span>
+      <div class="card-footer-row">
+        <label class="build-runner-label" title="Run dart run build_runner clean + build before flutter build">
+          <input type="checkbox" id="build-runner-${id}" class="build-runner-checkbox" ${isDeploying ? "disabled" : ""} />
+          build_runner
+        </label>
+        <div class="card-footer-right">
+          ${deploy ? `<button class="btn-view-log" id="log-${id}">Log</button>` : ""}
+          <button class="btn-deploy" id="deploy-${id}" disabled>
+            ${isDeploying ? "Deploying…" : "Deploy"}
+          </button>
+        </div>
       </div>
     `;
 
-    list.appendChild(item);
+    list.appendChild(card);
 
-    // ── Dropdown wiring ────────────────────────────────────────────────────
+    // ── Dropdown wiring ──────────────────────────────────────────────────────
     const trigger   = document.getElementById(`selector-trigger-${id}`);
     const dropdown  = document.getElementById(`dropdown-${id}`);
     const searchEl  = document.getElementById(`search-${id}`);
@@ -155,8 +156,7 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
     const deployBtn = document.getElementById(`deploy-${id}`);
 
     trigger.addEventListener("click", (e) => {
-      e.stopPropagation(); // prevent global close listener from firing immediately
-      // Close other open dropdowns
+      e.stopPropagation();
       document.querySelectorAll(".branch-dropdown:not(.hidden)").forEach((dd) => {
         if (dd !== dropdown) dd.classList.add("hidden");
       });
@@ -168,10 +168,8 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
       }
     });
 
-    // Prevent clicks inside dropdown from bubbling to global close listener
     dropdown.addEventListener("click", (e) => e.stopPropagation());
 
-    // Real-time search filter
     searchEl.addEventListener("input", () => {
       const q = searchEl.value.toLowerCase();
       Array.from(optsEl.children).forEach((o) => {
@@ -183,7 +181,6 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
       if (e.key === "Escape") dropdown.classList.add("hidden");
     });
 
-    // Option click — no restriction, same branch can be redeployed
     optsEl.addEventListener("click", (e) => {
       const opt = e.target.closest(".branch-option");
       if (!opt) return;
@@ -194,32 +191,27 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
       Array.from(optsEl.children).forEach((o) =>
         o.classList.toggle("selected", o.dataset.value === val)
       );
-      deployBtn.disabled = isDeploying; // only disabled if a deploy is running
+      deployBtn.disabled = isDeploying;
     });
 
-    // Fetch button
     document.getElementById(`fetch-${id}`)
       .addEventListener("click", () => onFetch(id));
 
-    // Deploy button
     deployBtn.addEventListener("click", () => {
       const b = getBranchValue(id);
-      if (b) onDeploy(id, b);
+      const runBuildRunner = document.getElementById(`build-runner-${id}`)?.checked ?? false;
+      if (b) onDeploy(id, b, runBuildRunner);
     });
 
-    // Log button
     const logBtn = document.getElementById(`log-${id}`);
     if (logBtn) logBtn.addEventListener("click", () => onViewLog(id));
 
-    // Remove button
     const removeBtn = document.getElementById(`remove-${id}`);
     if (removeBtn) removeBtn.addEventListener("click", () => onRemove && onRemove(id, env.label));
 
-    // Env vars button
     const envVarsBtn = document.getElementById(`envvars-${id}`);
     if (envVarsBtn) envVarsBtn.addEventListener("click", () => onEnvVars && onEnvVars(id, env.label));
 
-    // Restore cached branches across re-renders
     if (branchCache[id]) {
       populateSelect(id, branchCache[id], isDeploying);
     }

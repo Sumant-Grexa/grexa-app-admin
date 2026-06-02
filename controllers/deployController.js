@@ -14,10 +14,16 @@ async function getStatus(_req, res) {
     Object.entries(getEnvs()).map(async ([id, env]) => {
       try {
         const git = simpleGit(env.repoPath);
-        const branchSummary = await git.branch();
+        const [branchSummary, log] = await Promise.all([
+          git.branch(),
+          git.log(["-1"]).catch(() => null),
+        ]);
         result[id] = {
           ...env,
           currentBranch: branchSummary.current,
+          lastCommit: log?.latest
+            ? { author: log.latest.author_name, hash: log.latest.hash.slice(0, 7) }
+            : null,
           deploy: deployState[id] ?? null,
         };
       } catch (err) {
@@ -57,7 +63,7 @@ async function getEnvBranches(req, res) {
  * @param {import("express").Response} res
  */
 function startDeploy(req, res) {
-  const { envId, branch } = req.body;
+  const { envId, branch, runBuildRunner = false } = req.body;
   const env = getEnvs()[envId];
 
   if (!env) return res.status(404).json({ error: "Unknown environment" });
@@ -71,6 +77,7 @@ function startDeploy(req, res) {
   setState(envId, {
     status: "deploying",
     targetBranch: branch,
+    runBuildRunner: !!runBuildRunner,
     log: [],
     startedAt: new Date().toISOString(),
     finishedAt: undefined,

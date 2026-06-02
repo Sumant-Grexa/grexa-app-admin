@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Grexa Deployer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <div id="login-screen" class="screen">
     <div class="login-box">
@@ -18,7 +22,8 @@
       </div>
       <form id="login-form">
         <div class="field">
-          <input type="password" id="password-input" placeholder="Enter deploy password" autocomplete="current-password" />
+          <input type="password" id="password-input" placeholder="Enter deploy password"
+            autocomplete="current-password" />
         </div>
         <button type="submit" class="btn-primary">Unlock</button>
         <p id="login-error" class="error-msg hidden">Wrong password. Try again.</p>
@@ -43,16 +48,8 @@
     </header>
 
     <main>
-      <div id="env-list" class="env-list">
-        <!-- Items injected by JS -->
-      </div>
-
-      <div id="log-panel" class="log-panel hidden">
-        <div class="log-header">
-          <span id="log-title">Deploy Log</span>
-          <button class="btn-ghost muted" id="close-log">Close</button>
-        </div>
-        <pre id="log-output" class="log-output"></pre>
+      <div id="env-list" class="env-grid">
+        <!-- Cards injected by JS -->
       </div>
     </main>
   </div>
@@ -74,7 +71,8 @@
           </div>
           <div class="field-group">
             <label class="field-label" for="new-env-subdomain">Subdomain</label>
-            <input type="text" id="new-env-subdomain" class="field-input" placeholder="e.g. hoegarden" autocomplete="off" />
+            <input type="text" id="new-env-subdomain" class="field-input" placeholder="e.g. hoegarden"
+              autocomplete="off" />
             <span class="field-hint">Subdomain only — e.g. hoegarden, not hoegarden.grexa.ai</span>
             <p id="subdomain-field-error" class="error-msg hidden"></p>
           </div>
@@ -96,10 +94,12 @@
         <button class="modal-close" id="remove-env-close">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="modal-warn">This will remove the nginx config, build directory, and source repo for <strong id="remove-env-label"></strong>. This cannot be undone.</p>
+        <p class="modal-warn">This will remove the nginx config, build directory, and source repo for <strong
+            id="remove-env-label"></strong>. This cannot be undone.</p>
         <div class="field-group">
           <label class="field-label" for="remove-env-password">Confirm Password</label>
-          <input type="password" id="remove-env-password" class="field-input" placeholder="Enter deploy password" autocomplete="current-password" />
+          <input type="password" id="remove-env-password" class="field-input" placeholder="Enter deploy password"
+            autocomplete="current-password" />
         </div>
         <p id="remove-env-error" class="error-msg hidden"></p>
       </div>
@@ -120,16 +120,20 @@
       <div class="modal-body">
         <div class="field-group">
           <label class="field-label" for="env-vars-password">Password</label>
-          <input type="password" id="env-vars-password" class="field-input" placeholder="Enter env-vars password" autocomplete="current-password" />
+          <input type="password" id="env-vars-password" class="field-input" placeholder="Enter env-vars password"
+            autocomplete="current-password" />
           <p id="env-vars-password-error" class="error-msg hidden"></p>
         </div>
         <div class="env-vars-tabs">
           <button class="env-tab active" data-tab="dev">.env.dev</button>
           <button class="env-tab" data-tab="prod">.env.prod</button>
         </div>
-        <textarea id="env-vars-dev" class="env-vars-textarea" placeholder="KEY=value&#10;ANOTHER_KEY=another_value" spellcheck="false"></textarea>
-        <textarea id="env-vars-prod" class="env-vars-textarea hidden" placeholder="KEY=value&#10;ANOTHER_KEY=another_value" spellcheck="false"></textarea>
-        <p class="field-hint">Changes are written to disk then <code>dart run build_runner build --delete-conflicting-outputs</code> is run.</p>
+        <textarea id="env-vars-dev" class="env-vars-textarea" placeholder="KEY=value&#10;ANOTHER_KEY=another_value"
+          spellcheck="false"></textarea>
+        <textarea id="env-vars-prod" class="env-vars-textarea hidden"
+          placeholder="KEY=value&#10;ANOTHER_KEY=another_value" spellcheck="false"></textarea>
+        <p class="field-hint">Changes are written to disk then
+          <code>dart run build_runner build --delete-conflicting-outputs</code> is run.</p>
         <p id="env-vars-error" class="error-msg hidden"></p>
       </div>
       <div id="env-vars-log-wrap" class="env-vars-log-wrap hidden">
@@ -187,7 +191,8 @@
               </div>
               <div class="field-group">
                 <label class="field-label" for="ps-rollout">Rollout %</label>
-                <input type="number" id="ps-rollout" min="1" max="100" value="10" class="field-input" placeholder="1–100" />
+                <input type="number" id="ps-rollout" min="1" max="100" value="10" class="field-input"
+                  placeholder="1–100" />
                 <span class="field-hint">Percentage of users to receive this update (1–100)</span>
               </div>
             </div>
@@ -217,7 +222,8 @@
             </div>
             <div class="field-group">
               <label class="field-label" for="ps-notes">Release Notes</label>
-              <textarea id="ps-notes" class="field-input ps-notes" placeholder="What changed in this release?" rows="2"></textarea>
+              <textarea id="ps-notes" class="field-input ps-notes" placeholder="What changed in this release?"
+                rows="2"></textarea>
             </div>
           </div>
 
@@ -233,7 +239,8 @@
           <!-- Release password -->
           <div class="field-group">
             <label class="field-label" for="ps-password">Release Password</label>
-            <input type="password" id="ps-password" class="field-input" placeholder="Enter release password" autocomplete="current-password" />
+            <input type="password" id="ps-password" class="field-input" placeholder="Enter release password"
+              autocomplete="current-password" />
           </div>
 
           <p id="ps-error" class="error-msg hidden"></p>
@@ -257,7 +264,17 @@
     </div>
   </div>
 
+  <!-- Log Drawer -->
+  <div id="log-drawer" class="log-drawer hidden">
+    <div class="drawer-header">
+      <div class="drawer-tabs" id="drawer-tabs"></div>
+      <button class="drawer-close-btn" id="drawer-close" title="Close log panel">&#x2715;</button>
+    </div>
+    <pre id="drawer-log-output" class="drawer-log-output">Open a deploy log from any environment card.</pre>
+  </div>
+
   <script type="module" src="js/playStoreManager.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
+
 </html>
