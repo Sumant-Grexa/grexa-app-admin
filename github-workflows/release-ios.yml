@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Run build runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
       - name: Install CocoaPods dependencies
         run: cd ios && pod install
 
@@ -43,6 +46,8 @@ jobs:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          IOS_PROVISIONING_PROFILE_NOTIFICATION: ${{ secrets.IOS_PROVISIONING_PROFILE_NOTIFICATION }}
+          IOS_PROVISIONING_PROFILE_CONTENT_EXT: ${{ secrets.IOS_PROVISIONING_PROFILE_CONTENT_EXT }}
         run: |
           # Create temp keychain
           security create-keychain -p "" build.keychain
@@ -55,9 +60,11 @@ jobs:
           security import /tmp/certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
-          # Install provisioning profile
+          # Install all provisioning profiles
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          echo "$IOS_PROVISIONING_PROFILE"              | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/main.mobileprovision
+          echo "$IOS_PROVISIONING_PROFILE_NOTIFICATION" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/notification.mobileprovision
+          echo "$IOS_PROVISIONING_PROFILE_CONTENT_EXT"  | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/content_ext.mobileprovision
 
 
       - name: Build IPA

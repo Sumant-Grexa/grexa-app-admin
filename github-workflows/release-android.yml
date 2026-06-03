@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Run build runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
       - name: Build AAB
         run: flutter build appbundle --flavor prod -t lib/main_prod.dart
 
