@@ -1,6 +1,8 @@
 name: Release iOS
 
 on:
+  push:
+    branches: [eng/prod_release_github_actions]
   workflow_dispatch:
     inputs:
       version:
@@ -36,11 +38,43 @@ jobs:
       - name: Install CocoaPods dependencies
         run: cd ios && pod install
 
-      - name: Set flavor
-        run: bash scripts/set-flavor.sh prod
+      - name: Set up iOS signing
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          # Create temp keychain
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+
+          # Import certificate
+          echo "$IOS_CERTIFICATE_P12" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
 
       - name: Build IPA
         run: flutter build ipa --flavor prod -t lib/main_prod.dart
+
+      - name: Set release vars
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "release_notes=${{ inputs.release_notes }}" >> $GITHUB_OUTPUT
+            echo "rollout_type=${{ inputs.rollout_type }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=2.38.1" >> $GITHUB_OUTPUT
+            echo "release_notes=Test build" >> $GITHUB_OUTPUT
+            echo "rollout_type=full" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload to App Store via Transporter
         env:
@@ -62,9 +96,9 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
-          VERSION_STRING: ${{ inputs.version }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
-          ROLLOUT_TYPE: ${{ inputs.rollout_type }}
+          VERSION_STRING: ${{ steps.vars.outputs.version }}
+          RELEASE_NOTES: ${{ steps.vars.outputs.release_notes }}
+          ROLLOUT_TYPE: ${{ steps.vars.outputs.rollout_type }}
         run: node .github/scripts/asc-submit.mjs
 
       - name: Create Git tag
@@ -73,5 +107,5 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}" || true
-          git push origin "v${{ inputs.version }}" || true
+          git tag -a "v${{ steps.vars.outputs.version }}" -m "Release v${{ steps.vars.outputs.version }}" || true
+          git push origin "v${{ steps.vars.outputs.version }}" || true

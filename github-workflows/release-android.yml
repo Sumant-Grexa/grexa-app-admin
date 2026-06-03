@@ -1,6 +1,8 @@
 name: Release Android
 
 on:
+  push:
+    branches: [eng/prod_release_github_actions]
   workflow_dispatch:
     inputs:
       version:
@@ -43,11 +45,28 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Set flavor
-        run: bash scripts/set-flavor.sh prod
-
       - name: Build AAB
         run: flutter build appbundle --flavor prod -t lib/main_prod.dart
+
+      - name: Set release vars
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "release_notes=${{ inputs.release_notes }}" >> $GITHUB_OUTPUT
+            echo "track=${{ inputs.track }}" >> $GITHUB_OUTPUT
+            echo "user_fraction=${{ inputs.user_fraction }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=2.38.1" >> $GITHUB_OUTPUT
+            echo "release_notes=Test build" >> $GITHUB_OUTPUT
+            echo "track=production" >> $GITHUB_OUTPUT
+            echo "user_fraction=10" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Write What's New file
+        run: |
+          mkdir -p whats-new
+          echo "${{ steps.vars.outputs.release_notes }}" > whats-new/whatsnew-en-US
 
       - name: Upload to Play Store
         uses: r0adkll/upload-google-play@v1
@@ -55,16 +74,10 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           packageName: ai.grexa.app
           releaseFiles: build/app/outputs/bundle/prodRelease/app-prod-release.aab
-          track: ${{ inputs.track }}
-          userFraction: ${{ format('{0}', inputs.user_fraction) }}
+          track: ${{ steps.vars.outputs.track }}
+          userFraction: ${{ steps.vars.outputs.user_fraction }}
           whatsNewDirectory: whats-new/
           status: completed
-
-      - name: Write What's New file
-        if: inputs.release_notes != ''
-        run: |
-          mkdir -p whats-new
-          echo "${{ inputs.release_notes }}" > whats-new/whatsnew-en-US
 
       - name: Create Git tag
         env:
@@ -72,8 +85,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
+          git tag -a "v${{ steps.vars.outputs.version }}" -m "Release v${{ steps.vars.outputs.version }}"
+          git push origin "v${{ steps.vars.outputs.version }}"
 
       - name: Generate release notes
         env:
@@ -83,6 +96,6 @@ jobs:
             --method POST \
             -H "Accept: application/vnd.github+json" \
             /repos/${{ github.repository }}/releases/generate-notes \
-            -f tag_name="v${{ inputs.version }}" \
+            -f tag_name="v${{ steps.vars.outputs.version }}" \
             -f target_commitish=master \
             | jq -r '.body' >> release-notes.md || true
