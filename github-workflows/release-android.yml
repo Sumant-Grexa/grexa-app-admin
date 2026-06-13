@@ -1,8 +1,6 @@
 name: Release Android
 
 on:
-  push:
-    branches: [eng/prod_release_github_actions]
   workflow_dispatch:
     inputs:
       version:
@@ -17,9 +15,13 @@ on:
         required: false
         default: "production"
       user_fraction:
-        description: "Rollout percentage (1–100)"
+        description: "Rollout percentage (1-100)"
         required: false
         default: "10"
+      run_build_runner:
+        description: "Run build_runner before build"
+        required: false
+        default: "false"
 
 jobs:
   build-and-upload:
@@ -29,11 +31,62 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── DISK CLEANUP — must run before any SDK/build setup ──────────
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false    # keep — needed for Java & Flutter setup
+          android: false       # keep — needed for the build
+          dotnet: true         # ~1.7 GB
+          haskell: true        # ~1.4 GB
+          large-packages: true # ~3.0 GB
+          docker-images: true  # ~3.2 GB
+          swap-storage: true
+
+      - name: Remove pre-installed NDK versions except the one we use
+        run: |
+          echo "=== Disk before NDK cleanup ==="
+          df -h
+          NDK_ROOT="/usr/local/lib/android/sdk/ndk"
+          KEEP="27.0.12077973"
+          if [ -d "$NDK_ROOT" ]; then
+            for dir in "$NDK_ROOT"/*/; do
+              version=$(basename "$dir")
+              if [ "$version" != "$KEEP" ]; then
+                echo "Removing NDK $version (~$(du -sh "$dir" 2>/dev/null | cut -f1))"
+                sudo rm -rf "$dir"
+              else
+                echo "Keeping NDK $version"
+              fi
+            done
+          else
+            echo "NDK root not found at $NDK_ROOT, skipping"
+          fi
+          echo "=== Disk after cleanup ==="
+          df -h
+      # ────────────────────────────────────────────────────────────────
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Cache Android SDK platforms & NDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms
+          key: android-sdk-platforms-p31-p33
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -45,25 +98,72 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Create env files
+        run: |
+          echo "${{ secrets.ENV_DEV }}" > .env.dev
+          echo "${{ secrets.ENV_PROD }}" > .env.prod
+
       - name: Run build runner
+        if: inputs.run_build_runner == 'true'
         run: dart run build_runner build --delete-conflicting-outputs
 
-      - name: Build AAB
-        run: flutter build appbundle --flavor prod -t lib/main_prod.dart
+      - name: Set up Android signing
+        run: |
+          echo "${{ secrets.ANDROID_PROD_KEYSTORE }}" | base64 --decode > android/app/prod-release.jks
+          cat > android/key.properties << EOF
+          prodKeyAlias=${{ secrets.ANDROID_PROD_KEY_ALIAS }}
+          prodKeyPassword=${{ secrets.ANDROID_PROD_KEY_PASSWORD }}
+          prodStoreFile=prod-release.jks
+          prodStorePassword=${{ secrets.ANDROID_PROD_STORE_PASSWORD }}
+          EOF
+
+      - name: Check disk space before build
+        run: df -h
+
+      - name: Build AAB with logs
+        run: |
+          set -o pipefail
+          mkdir -p build_logs
+
+          flutter build appbundle \
+            --flavor prod \
+            -t lib/main_prod.dart \
+            -v \
+            2>&1 | tee build_logs/android_build.log
+
+      - name: Upload Android logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-logs
+          path: build_logs/
 
       - name: Set release vars
         id: vars
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "release_notes=${{ inputs.release_notes }}" >> $GITHUB_OUTPUT
             echo "track=${{ inputs.track }}" >> $GITHUB_OUTPUT
-            echo "user_fraction=${{ inputs.user_fraction }}" >> $GITHUB_OUTPUT
+            {
+              echo "release_notes<<EOF"
+              echo "${{ inputs.release_notes }}"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+            RAW=${{ inputs.user_fraction }}
+            CLAMPED=$(echo "$RAW" | awk '{if($1<1) x=1; else if($1>100) x=100; else x=$1; printf "%.2f", x/100}')
+            echo "user_fraction=$CLAMPED" >> $GITHUB_OUTPUT
+            STATUS=$(echo "$CLAMPED" | awk '{print ($1 >= 1.00) ? "completed" : "inProgress"}')
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
           else
             echo "version=2.38.1" >> $GITHUB_OUTPUT
-            echo "release_notes=Test build" >> $GITHUB_OUTPUT
             echo "track=production" >> $GITHUB_OUTPUT
-            echo "user_fraction=10" >> $GITHUB_OUTPUT
+            echo "user_fraction=0.10" >> $GITHUB_OUTPUT
+            echo "status=inProgress" >> $GITHUB_OUTPUT
+            {
+              echo "release_notes<<EOF"
+              echo "Test build"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
           fi
 
       - name: Write What's New file
@@ -80,7 +180,7 @@ jobs:
           track: ${{ steps.vars.outputs.track }}
           userFraction: ${{ steps.vars.outputs.user_fraction }}
           whatsNewDirectory: whats-new/
-          status: completed
+          status: ${{ steps.vars.outputs.status }}
 
       - name: Create Git tag
         env:

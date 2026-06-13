@@ -1,8 +1,6 @@
 name: Release iOS
 
 on:
-  push:
-    branches: [eng/prod_release_github_actions]
   workflow_dispatch:
     inputs:
       version:
@@ -16,14 +14,30 @@ on:
         description: "Release type: full | phased | manual"
         required: false
         default: "full"
+      run_build_runner:
+        description: "Run build_runner before build"
+        required: false
+        default: "false"
 
 jobs:
   build-and-upload:
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)
+          if [ -z "$XCODE_APP" ]; then
+            echo "Xcode 26 is not installed on this runner."
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -Ei 'iphoneos26|iOS 26'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -35,11 +49,30 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Create env files
+        run: |
+          echo "${{ secrets.ENV_DEV }}" > .env.dev
+          echo "${{ secrets.ENV_PROD }}" > .env.prod
+
       - name: Run build runner
+        if: inputs.run_build_runner == 'true'
         run: dart run build_runner build --delete-conflicting-outputs
 
       - name: Install CocoaPods dependencies
         run: cd ios && pod install
+      
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+
+      - name: Install provisioning profiles
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE }}"              | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/main.mobileprovision
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_NOTIFICATION }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/notification.mobileprovision
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_CONTENT_EXT }}"  | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/content_ext.mobileprovision
 
       - name: Set up iOS signing
         env:
@@ -55,6 +88,11 @@ jobs:
           security unlock-keychain -p "" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
 
+          # ✅ FIX 2: Register the keychain in the search list so codesign can see it.
+          # Without this, certificates imported into build.keychain are invisible
+          # to xcodebuild even though import succeeded.
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | tr -d '"')
+
           # Import certificate
           echo "$IOS_CERTIFICATE_P12" | base64 --decode > /tmp/certificate.p12
           security import /tmp/certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
@@ -66,36 +104,85 @@ jobs:
           echo "$IOS_PROVISIONING_PROFILE_NOTIFICATION" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/notification.mobileprovision
           echo "$IOS_PROVISIONING_PROFILE_CONTENT_EXT"  | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/content_ext.mobileprovision
 
+      - name: Set up Firebase config for prod
+        run: |
+          cp ios/flavors/prod/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist
+          cp ios/flavors/prod/firebase_app_id_file.json ios/firebase_app_id_file.json
 
-      - name: Build IPA
-        run: flutter build ipa --flavor prod -t lib/main_prod.dart
+      # - name: Build IPA
+      #   run: |
+      #     flutter build ipa \
+      #       --flavor prod \
+      #       -t lib/main_prod.dart \
+      #       --export-options-plist=ios/ExportOptions.plist
+      
+      - name: Build IPA with logs
+        run: |
+          set -o pipefail
+          mkdir -p build_logs
+
+          flutter build ipa \
+            --flavor prod \
+            -t lib/main_prod.dart \
+            --export-options-plist=ios/ExportOptions.plist \
+            -v \
+            2>&1 | tee build_logs/ios_build.log
+        env:
+          UPLOAD_SYMBOLS: 0
+
+      - name: Upload Crashlytics dSYM symbols
+        run: |
+          DSYM_PATH=$(find build/ios/archive -name "*.dSYM" -type d | head -1 | xargs dirname)
+          ios/Pods/FirebaseCrashlytics/upload-symbols \
+            -gsp ios/Runner/GoogleService-Info.plist \
+            -p ios \
+            "$DSYM_PATH"
+
+      - name: Upload iOS logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-logs
+          path: build_logs/
 
       - name: Set release vars
         id: vars
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-            echo "release_notes=${{ inputs.release_notes }}" >> $GITHUB_OUTPUT
             echo "rollout_type=${{ inputs.rollout_type }}" >> $GITHUB_OUTPUT
+            {
+              echo "release_notes<<EOF"
+              echo "${{ inputs.release_notes }}"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
           else
             echo "version=2.38.1" >> $GITHUB_OUTPUT
-            echo "release_notes=Test build" >> $GITHUB_OUTPUT
             echo "rollout_type=full" >> $GITHUB_OUTPUT
+            {
+              echo "release_notes<<EOF"
+              echo "Test build"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload to App Store via Transporter
+      - name: Upload to App Store via altool
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
         run: |
-          echo "$ASC_PRIVATE_KEY" > /tmp/AuthKey.p8
-          xcrun transporter \
-            -m upload \
-            -f "build/ios/ipa/Runner.ipa" \
-            -apiKey "$ASC_KEY_ID" \
-            -apiIssuer "$ASC_ISSUER_ID"
-          rm -f /tmp/AuthKey.p8
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          xcrun altool --upload-app \
+            -f "build/ios/ipa/Grexa.ipa" \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID" \
+            --verbose
+
+          rm -f ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
       - name: Submit to App Store Connect
         env:
@@ -107,12 +194,3 @@ jobs:
           RELEASE_NOTES: ${{ steps.vars.outputs.release_notes }}
           ROLLOUT_TYPE: ${{ steps.vars.outputs.rollout_type }}
         run: node .github/scripts/asc-submit.mjs
-
-      - name: Create Git tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.vars.outputs.version }}" -m "Release v${{ steps.vars.outputs.version }}" || true
-          git push origin "v${{ steps.vars.outputs.version }}" || true
