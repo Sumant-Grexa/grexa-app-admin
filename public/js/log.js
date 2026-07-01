@@ -5,10 +5,12 @@ import { esc } from "./render.js";
 const openTabs = {};
 let activeTabId = null;
 const pollers = {};
+const RELEASE_TAB_ID = "__app_release__";
 
 function getDrawer()    { return document.getElementById("log-drawer"); }
 function getTabsEl()    { return document.getElementById("drawer-tabs"); }
 function getOutputEl()  { return document.getElementById("drawer-log-output"); }
+function isReleaseTab(tabId) { return tabId === RELEASE_TAB_ID; }
 
 function renderTabs() {
   const tabsEl = getTabsEl();
@@ -35,9 +37,15 @@ function renderLog(envId) {
   out.innerHTML = entry.log.map((line) => {
     if (line.startsWith("Deploy complete") || line.startsWith("Skipping"))
       return `<span class="log-line-ok">${esc(line)}</span>`;
+    if (line.includes("✓") || line.startsWith("Tag created:") || line.startsWith("GitHub release created:") || line.startsWith("Posted release notes"))
+      return `<span class="log-line-ok">${esc(line)}</span>`;
     if (line.startsWith("Error:"))
       return `<span class="log-line-err">${esc(line)}</span>`;
+    if (line.includes("✗") || line.startsWith("Pipeline failed:"))
+      return `<span class="log-line-err">${esc(line)}</span>`;
     if (/^(Fetching|Checking|Running|Syncing|Clearing|Copying|Discarding)/.test(line))
+      return `<span class="log-line-step">${esc(line)}</span>`;
+    if (/^(Dispatching|Finalizing|\[android\]|\[ios\]|Tag already exists:|Generated GitHub release notes|Skipping Google Chat notification)/.test(line))
       return `<span class="log-line-step">${esc(line)}</span>`;
     return `<span class="log-line-plain">${esc(line)}</span>`;
   }).join("\n");
@@ -104,27 +112,47 @@ export async function openLog(envId, label) {
 
 export async function refreshLog(envId) {
   try {
-    const data = await api("GET", `/api/deploy-log/${envId}`);
+    const path = isReleaseTab(envId) ? "/api/play-store/log" : `/api/deploy-log/${envId}`;
+    const data = await api("GET", path);
     if (openTabs[envId]) openTabs[envId].log = data.log ?? [];
     if (activeTabId === envId) renderLog(envId);
+    return data;
   } catch {}
+  return null;
 }
 
-export function startLogPolling(envId, onDone) {
+function startPollingForTab(envId, onDone) {
   if (pollers[envId]) return;
   pollers[envId] = setInterval(async () => {
     try {
-      const data = await api("GET", `/api/deploy-log/${envId}`);
+      const path = isReleaseTab(envId) ? "/api/play-store/log" : `/api/deploy-log/${envId}`;
+      const data = await api("GET", path);
       if (openTabs[envId]) openTabs[envId].log = data.log ?? [];
       if (activeTabId === envId) renderLog(envId);
-      if (data.status !== "deploying") {
+      const done = isReleaseTab(envId)
+        ? data.status === "success" || data.status === "error" || data.status === "idle"
+        : data.status !== "deploying";
+      if (done) {
         clearInterval(pollers[envId]);
         delete pollers[envId];
-        if (onDone) onDone();
+        if (onDone) onDone(data);
       }
     } catch {
       clearInterval(pollers[envId]);
       delete pollers[envId];
+      if (onDone) onDone(null);
     }
   }, 1500);
+}
+
+export function startLogPolling(envId, onDone) {
+  startPollingForTab(envId, onDone);
+}
+
+export async function openReleaseLog(label = "App Release") {
+  return openLog(RELEASE_TAB_ID, label);
+}
+
+export function startReleaseLogPolling(onDone) {
+  startPollingForTab(RELEASE_TAB_ID, onDone);
 }

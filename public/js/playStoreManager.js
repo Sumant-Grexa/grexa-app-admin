@@ -1,7 +1,8 @@
 import { startRelease, getReleaseLog } from "./playStoreApi.js";
+import { openReleaseLog, startReleaseLogPolling } from "./log.js";
 
 /* ── Module-level state ─────────────────────────────────────────────────────── */
-let pollInterval = null;
+let releaseLogPollActive = false;
 
 /* ── Helpers ────────────────────────────────────────────────────────────────── */
 function setStatusBadge(status) {
@@ -57,45 +58,42 @@ function hideError() {
   if (el) el.classList.add("hidden");
 }
 
-function stopPolling() {
-  if (pollInterval !== null) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-}
+function startPolling(version) {
+  if (releaseLogPollActive) return;
+  releaseLogPollActive = true;
 
-function startPolling() {
-  stopPolling();
+  openReleaseLog(version ? `App Release v${version}` : "App Release").catch(() => {});
 
-  const logOutput = document.getElementById("ps-log-output");
-
-  pollInterval = setInterval(async () => {
-    try {
-      const data = await getReleaseLog();
-      const lines = Array.isArray(data.log) ? data.log : [];
-      if (logOutput) {
-        logOutput.textContent = lines.join("\n");
-        logOutput.scrollTop = logOutput.scrollHeight;
-      }
-
-      if (data.status === "success" || data.status === "error") {
-        stopPolling();
-        setStatusBadge(data.status);
-        setButtonRunning(false);
-      }
-    } catch (err) {
-      // keep polling on transient errors
-      console.error("Poll error:", err);
-    }
-  }, 2000);
+  startReleaseLogPolling(async (data) => {
+    releaseLogPollActive = false;
+    const finalData = data || (await getReleaseLog().catch(() => null));
+    setStatusBadge(finalData?.status || "error");
+    setButtonRunning(false);
+  });
 }
 
 /* ── Init ───────────────────────────────────────────────────────────────────── */
 export function initPlayStoreManager() {
   /* Release App modal open/close */
   const modal = document.getElementById("release-app-modal");
-  document.getElementById("release-app-btn")?.addEventListener("click", () => {
+  document.getElementById("release-app-btn")?.addEventListener("click", async () => {
     modal?.classList.remove("hidden");
+    try {
+      const data = await getReleaseLog();
+      setStatusBadge(data.status || "idle");
+      if (data.status === "running") {
+        setButtonRunning(true);
+        startPolling();
+      } else {
+        setButtonRunning(false);
+      }
+      if (Array.isArray(data.log) && data.log.length > 0) {
+        await openReleaseLog("App Release");
+      }
+    } catch {
+      setStatusBadge("idle");
+      setButtonRunning(false);
+    }
   });
   document.getElementById("release-app-close")?.addEventListener("click", () => {
     modal?.classList.add("hidden");
@@ -171,16 +169,12 @@ export function initPlayStoreManager() {
       payload.ios = { rolloutType };
     }
 
-    /* Show log wrap, set running state */
-    const logWrap = document.getElementById("ps-log-wrap");
-    if (logWrap) logWrap.classList.remove("hidden");
-
     setStatusBadge("running");
     setButtonRunning(true);
 
     try {
       await startRelease(payload);
-      startPolling();
+      startPolling(version);
     } catch (err) {
       showError(err.message || "Failed to start release");
       setStatusBadge("error");

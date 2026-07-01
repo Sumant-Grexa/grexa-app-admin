@@ -181,24 +181,3 @@ jobs:
           userFraction: ${{ steps.vars.outputs.user_fraction }}
           whatsNewDirectory: whats-new/
           status: ${{ steps.vars.outputs.status }}
-
-      - name: Create Git tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.vars.outputs.version }}" -m "Release v${{ steps.vars.outputs.version }}"
-          git push origin "v${{ steps.vars.outputs.version }}"
-
-      - name: Generate release notes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            /repos/${{ github.repository }}/releases/generate-notes \
-            -f tag_name="v${{ steps.vars.outputs.version }}" \
-            -f target_commitish=master \
-            | jq -r '.body' >> release-notes.md || true
