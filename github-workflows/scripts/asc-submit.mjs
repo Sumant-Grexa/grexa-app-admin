@@ -88,7 +88,7 @@ async function main() {
     await asc("POST", "/appStoreVersionLocalizations", {
       data: {
         type: "appStoreVersionLocalizations",
-        attributes: { locale: "en-US", whatsNewText: RELEASE_NOTES },
+        attributes: { locale: "en-US", whatsNew: RELEASE_NOTES },
         relationships: { appStoreVersion: { data: { type: "appStoreVersions", id: versionId } } },
       },
     });

@@ -305,7 +305,7 @@ export async function createAppStoreVersion(token, appId, versionString, release
 // POST /v1/appStoreVersions
 // returns versionId
 
-export async function createLocalization(token, versionId, locale, whatsNewText)
+export async function createLocalization(token, versionId, locale, whatsNew)
 // POST /v1/appStoreVersionLocalizations
 // returns localizationId
 

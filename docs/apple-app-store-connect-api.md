@@ -215,7 +215,7 @@ POST /v1/appStoreVersionLocalizations
     "type": "appStoreVersionLocalizations",
     "attributes": {
       "locale": "en-US",
-      "whatsNewText": "• Dark mode support\n• Performance improvements\n• Bug fixes"
+      "whatsNew": "• Dark mode support\n• Performance improvements\n• Bug fixes"
     },
     "relationships": {
       "appStoreVersion": {
@@ -239,7 +239,7 @@ PATCH /v1/appStoreVersionLocalizations/<LOCALIZATION_ID>
     "type": "appStoreVersionLocalizations",
     "id": "<LOCALIZATION_ID>",
     "attributes": {
-      "whatsNewText": "Updated release notes"
+      "whatsNew": "Updated release notes"
     }
   }
 }
@@ -250,9 +250,12 @@ PATCH /v1/appStoreVersionLocalizations/<LOCALIZATION_ID>
 | Field | Max Length | Description |
 |---|---|---|
 | `locale` | — | e.g. `en-US`, `fr-FR`, `de-DE`, `ja-JP`, `zh-Hans` |
-| `whatsNewText` | 4,000 chars | "What's New" text shown on the App Store listing |
+| `whatsNew` | 4,000 chars | "What's New" text shown on the App Store listing |
 | `description` | 4,000 chars | Full app description |
 | `keywords` | 100 chars | Comma-separated search keywords |
+| `marketingUrl` | 500 chars | Marketing website URL for this locale |
+| `promotionalText` | 170 chars | Promotional text shown above description |
+| `supportUrl` | 500 chars | Support website URL for this locale |
 
 > At least one localization for the primary store language is required before review submission.
 
@@ -482,7 +485,7 @@ POST /v1/appStoreVersionSubmissions
 **Pre-submission checklist:**
 - [ ] Build uploaded and `processingState` is `VALID`
 - [ ] Build linked to the version
-- [ ] `whatsNewText` set for at least the primary locale
+- [ ] `whatsNew` set for at least the primary locale
 - [ ] `releaseType` configured
 - [ ] Phased release record created (if using phased rollout)
 - [ ] Screenshots, age rating, privacy policy URL set in App Store Connect
@@ -605,7 +608,7 @@ async function main() {
   await asc('POST', '/appStoreVersionLocalizations', {
     data: {
       type: 'appStoreVersionLocalizations',
-      attributes: { locale: 'en-US', whatsNewText: RELEASE_NOTES },
+      attributes: { locale: 'en-US', whatsNew: RELEASE_NOTES },
       relationships: {
         appStoreVersion: { data: { type: 'appStoreVersions', id: versionId } },
       },
