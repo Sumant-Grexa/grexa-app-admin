@@ -3,7 +3,7 @@ import { releaseState, runReleasePipeline } from "../services/release/pipeline.j
 const RELEASE_PASSWORD = process.env.RELEASE_PASSWORD;
 
 function startRelease(req, res) {
-  const { releasePassword, version, releaseNotes, platforms, android, ios, runBuildRunner } = req.body;
+  const { releasePassword, version, releaseNotes, platforms, android, ios } = req.body;
 
   if (!RELEASE_PASSWORD || releasePassword !== RELEASE_PASSWORD) {
     return res.status(401).json({ error: "Invalid release password" });
@@ -40,7 +40,6 @@ function startRelease(req, res) {
     track:          android?.track ?? "production",
     userFraction:   Number(android?.userFraction ?? 10) / 100,
     iosReleaseType: ios?.rolloutType ?? "full",
-    runBuildRunner: runBuildRunner === true,
   });
 
   res.json({ ok: true, message: `Release v${version} started` });

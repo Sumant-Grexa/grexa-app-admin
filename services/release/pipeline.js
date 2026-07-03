@@ -267,7 +267,6 @@ export async function runReleasePipeline(options) {
       track,
       userFraction,
       iosReleaseType,
-      runBuildRunner,
     } = options;
 
     const tagName = `v${version}`;
@@ -288,7 +287,6 @@ export async function runReleasePipeline(options) {
             release_notes: releaseNotes,
             track: track ?? "production",
             user_fraction: String(Math.round((userFraction ?? 0.1) * 100)),
-            run_build_runner: runBuildRunner ? "true" : "false",
           },
           RELEASE_BRANCH
         ).then(() => append("[android] workflow dispatched"))
@@ -306,7 +304,6 @@ export async function runReleasePipeline(options) {
             version,
             release_notes: releaseNotes,
             rollout_type: iosReleaseType ?? "full",
-            run_build_runner: runBuildRunner ? "true" : "false",
           },
           RELEASE_BRANCH
         ).then(() => append("[ios] workflow dispatched"))

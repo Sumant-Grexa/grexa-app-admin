@@ -145,14 +145,13 @@ export function initPlayStoreManager() {
     const releasePassword = (document.getElementById("ps-password")?.value || "").trim();
     const version = (document.getElementById("ps-version")?.value || "").trim();
     const releaseNotes = (document.getElementById("ps-notes")?.value || "").trim();
-    const runBuildRunner = document.getElementById("ps-build-runner")?.checked ?? false;
 
     if (!version) {
       showError("Version is required");
       return;
     }
 
-    const payload = { releasePassword, version, platforms, releaseNotes, runBuildRunner };
+    const payload = { releasePassword, version, platforms, releaseNotes };
 
     /* Android-specific fields */
     if (platforms.includes("android")) {
