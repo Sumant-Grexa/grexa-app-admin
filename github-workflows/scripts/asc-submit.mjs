@@ -21,6 +21,59 @@ for (const [name, val] of Object.entries({ ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVAT
 
 const BASE = "https://api.appstoreconnect.apple.com/v1";
 
+const ALLOWED_ATTRIBUTES = {
+  appStoreVersions: new Set(["platform", "versionString", "releaseType"]),
+  appStoreVersionLocalizations: new Set([
+    "locale",
+    "description",
+    "keywords",
+    "marketingUrl",
+    "promotionalText",
+    "supportUrl",
+    "whatsNew",
+  ]),
+  appStoreVersionPhasedReleases: new Set(["phasedReleaseState"]),
+};
+
+const ATTRIBUTE_ALIASES = {
+  appStoreVersionLocalizations: {
+    // Common mistake; ASC expects `whatsNew`.
+    whatsNewText: "whatsNew",
+  },
+};
+
+function normalizeAttributes(resourceType, attributes = {}) {
+  const aliases = ATTRIBUTE_ALIASES[resourceType] ?? {};
+  const allowed = ALLOWED_ATTRIBUTES[resourceType];
+  if (!allowed) return attributes;
+
+  const normalized = {};
+  const unknown = [];
+
+  for (const [key, value] of Object.entries(attributes)) {
+    const mapped = aliases[key] ?? key;
+    if (!allowed.has(mapped)) {
+      unknown.push(key);
+      continue;
+    }
+    normalized[mapped] = value;
+  }
+
+  if (unknown.length) {
+    throw new Error(
+      `Invalid attributes for ${resourceType}: ${unknown.join(", ")}. Allowed keys: ${Array.from(allowed).join(", ")}`
+    );
+  }
+
+  return normalized;
+}
+
+function validateRolloutType(value) {
+  if (!["full", "phased", "manual"].includes(value)) {
+    throw new Error(`Invalid ROLLOUT_TYPE: ${value}. Expected one of: full, phased, manual`);
+  }
+}
+
 // ── JWT (ES256, no external deps) ────────────────────────────────────────────
 function generateToken() {
   const now = Math.floor(Date.now() / 1000);
@@ -64,6 +117,8 @@ async function pollForValidBuild(maxAttempts = 40, intervalMs = 60_000) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
+  validateRolloutType(ROLLOUT_TYPE);
+
   // releaseType mapping
   const releaseType = ROLLOUT_TYPE === "manual" ? "MANUAL" : "AFTER_APPROVAL";
 
@@ -73,10 +128,16 @@ async function main() {
   console.log(`Build ready: ${buildId}`);
 
   // 2. Create App Store version
+  const versionAttributes = normalizeAttributes("appStoreVersions", {
+    platform: "IOS",
+    versionString: VERSION_STRING,
+    releaseType,
+  });
+
   const versionRes = await asc("POST", "/appStoreVersions", {
     data: {
       type: "appStoreVersions",
-      attributes: { platform: "IOS", versionString: VERSION_STRING, releaseType },
+      attributes: versionAttributes,
       relationships: { app: { data: { type: "apps", id: ASC_APP_ID } } },
     },
   });
@@ -85,10 +146,15 @@ async function main() {
 
   // 3. Release notes
   if (RELEASE_NOTES) {
+    const localizationAttributes = normalizeAttributes("appStoreVersionLocalizations", {
+      locale: "en-US",
+      whatsNew: RELEASE_NOTES,
+    });
+
     await asc("POST", "/appStoreVersionLocalizations", {
       data: {
         type: "appStoreVersionLocalizations",
-        attributes: { locale: "en-US", whatsNew: RELEASE_NOTES },
+        attributes: localizationAttributes,
         relationships: { appStoreVersion: { data: { type: "appStoreVersions", id: versionId } } },
       },
     });
@@ -107,10 +173,14 @@ async function main() {
 
   // 5. Phased release (only for 'phased')
   if (ROLLOUT_TYPE === "phased") {
+    const phasedAttributes = normalizeAttributes("appStoreVersionPhasedReleases", {
+      phasedReleaseState: "ACTIVE",
+    });
+
     await asc("POST", "/appStoreVersionPhasedReleases", {
       data: {
         type: "appStoreVersionPhasedReleases",
-        attributes: { phasedReleaseState: "ACTIVE" },
+        attributes: phasedAttributes,
         relationships: { appStoreVersion: { data: { type: "appStoreVersions", id: versionId } } },
       },
     });

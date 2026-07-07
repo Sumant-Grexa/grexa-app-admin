@@ -257,6 +257,8 @@ PATCH /v1/appStoreVersionLocalizations/<LOCALIZATION_ID>
 | `promotionalText` | 170 chars | Promotional text shown above description |
 | `supportUrl` | 500 chars | Support website URL for this locale |
 
+> Use `whatsNew` (not `whatsNewText`). Apple returns `409 ENTITY_ERROR.ATTRIBUTE.UNKNOWN` if you send `whatsNewText`.
+
 > At least one localization for the primary store language is required before review submission.
 
 **Get existing localizations for a version:**

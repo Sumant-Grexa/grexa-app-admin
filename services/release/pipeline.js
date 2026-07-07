@@ -13,6 +13,10 @@ export const releaseState = {
 };
 const RELEASE_BRANCH = "master";
 
+const RUN_POLL_INTERVAL_MS = 15000;
+const RUN_TIMEOUT_MIN = 120;
+const RUN_MAX_ATTEMPTS = Math.ceil((RUN_TIMEOUT_MIN * 60 * 1000) / RUN_POLL_INTERVAL_MS);
+
 class GitHubApiError extends Error {
   constructor(method, path, status, details) {
     super(`GitHub ${method} ${path} -> ${status}: ${details}`);
@@ -62,8 +66,16 @@ async function getLatestRunId(token, repo, workflow, afterMs) {
   throw new Error(`Could not find dispatched run for workflow "${workflow}" after 45 s`);
 }
 
-// Polls a run every 15 s for up to 30 min, resolves on success, rejects on failure.
-async function pollRun(token, repo, runId, append, label, intervalMs = 15000, maxAttempts = 120) {
+// Polls a run at a fixed interval up to the configured timeout.
+async function pollRun(
+  token,
+  repo,
+  runId,
+  append,
+  label,
+  intervalMs = RUN_POLL_INTERVAL_MS,
+  maxAttempts = RUN_MAX_ATTEMPTS
+) {
   for (let i = 1; i <= maxAttempts; i++) {
     const run = await ghFetch("GET", `/repos/${repo}/actions/runs/${runId}`, token);
     const { status, conclusion } = run;
@@ -336,6 +348,12 @@ export async function runReleasePipeline(options) {
     }
 
     const runIds = await Promise.all(runIdFetches);
+
+    append(
+      `Workflow monitor configured: timeout=${RUN_TIMEOUT_MIN} min, pollInterval=${Math.round(
+        RUN_POLL_INTERVAL_MS / 1000
+      )}s`
+    );
 
     // ── Poll concurrently ─────────────────────────────────────────────────────
     const results = await Promise.all(
