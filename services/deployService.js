@@ -86,12 +86,23 @@ async function runDeploy(envId) {
       append(`Skipping build_runner (not requested)`);
     }
 
-    append(`Running flutter build web --dart-define=FLAVOR=${env.flavor}`);
+    const flutterBuildCmdParts = [
+      "flutter",
+      "build",
+      "web",
+      `--dart-define=FLAVOR=${env.flavor}`,
+    ];
+
+    // Keep dev web bundles debuggable in browser with unminified output.
+    if (env.flavor === "dev") {
+      flutterBuildCmdParts.push("--debug");
+    }
+
+    const flutterBuildCmd = flutterBuildCmdParts.join(" ");
+
+    append(`Running ${flutterBuildCmd}`);
     await new Promise((resolve, reject) => {
-      const child = exec(
-        `flutter build web --dart-define=FLAVOR=${env.flavor}`,
-        { cwd: env.repoPath }
-      );
+      const child = exec(flutterBuildCmd, { cwd: env.repoPath });
 
       const pipe = (/** @type {unknown} */ data) =>
         String(data)
