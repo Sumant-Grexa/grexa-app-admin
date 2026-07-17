@@ -50,13 +50,16 @@ async function fetchBranches(envId) {
 }
 
 /* ── Deploy ────────────────────────────────────────────────────────────────── */
-async function deployBranch(envId, branch, runBuildRunner = false) {
+async function deployBranch(envId, branch, runBuildRunner = false, additionalFlags = "") {
   const label = statusData[envId]?.label || envId;
-  const buildRunnerNote = runBuildRunner ? "\n\nWill run: build_runner clean → build_runner build → flutter build" : "\n\nWill run: flutter build (no build_runner)";
-  if (!confirm(`Deploy "${branch}" to ${label}?${buildRunnerNote}\n\nThis will rsync to the server VM.`)) return;
+  const buildRunnerNote = runBuildRunner
+    ? "\n\nWill run: build_runner clean → build_runner build → flutter build"
+    : "\n\nWill run: flutter build (no build_runner)";
+  const extraFlagsNote = additionalFlags ? `\nAdditional flags: ${additionalFlags}` : "";
+  if (!confirm(`Deploy "${branch}" to ${label}?${buildRunnerNote}${extraFlagsNote}\n\nThis will rsync to the server VM.`)) return;
 
   try {
-    await api("POST", "/api/deploy", { envId, branch, runBuildRunner });
+    await api("POST", "/api/deploy", { envId, branch, runBuildRunner, additionalFlags });
     await loadStatus();
     setTimeout(() => {
       openLog(envId, label);

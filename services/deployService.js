@@ -86,19 +86,12 @@ async function runDeploy(envId) {
       append(`Skipping build_runner (not requested)`);
     }
 
-    const flutterBuildCmdParts = [
-      "flutter",
-      "build",
-      "web",
-      `--dart-define=FLAVOR=${env.flavor}`,
-    ];
-
-    // Keep dev web bundles debuggable in browser with unminified output.
-    if (env.flavor === "dev") {
-      flutterBuildCmdParts.push("--debug");
+    let flutterBuildCmd = `flutter build web --dart-define=FLAVOR=${env.flavor}`;
+    const additionalFlags = String(deployState[envId]?.additionalFlags ?? "").trim();
+    if (env.flavor === "dev" && additionalFlags) {
+      append(`Applying additional flutter flags: ${additionalFlags}`);
+      flutterBuildCmd += ` ${additionalFlags}`;
     }
-
-    const flutterBuildCmd = flutterBuildCmdParts.join(" ");
 
     append(`Running ${flutterBuildCmd}`);
     await new Promise((resolve, reject) => {

@@ -319,6 +319,26 @@ main {
   gap: 6px;
 }
 
+.card-flags-row {
+  margin-top: 2px;
+}
+
+.deploy-flags-input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+.deploy-flags-input:focus { border-color: var(--accent); }
+.deploy-flags-input::placeholder { color: var(--border2); }
+.deploy-flags-input:disabled { opacity: .5; cursor: not-allowed; }
+
 /* ── Custom searchable branch selector ─────────────────────────────────────── */
 .branch-selector-wrap {
   position: relative;

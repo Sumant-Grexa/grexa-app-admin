@@ -81,6 +81,7 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
     const deploy = env.deploy;
     const isDeploying = deploy?.status === "deploying";
     const branch = env.currentBranch || "unknown";
+    const isDevEnv = env.flavor === "dev";
 
     const card = document.createElement("div");
     card.className = `env-card ${stateClass(deploy)}`;
@@ -145,6 +146,17 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
         </div>
         <button class="btn-fetch" id="fetch-${id}" ${isDeploying ? "disabled" : ""}>Fetch</button>
       </div>
+
+      ${isDevEnv ? `
+      <div class="card-flags-row">
+        <input
+          type="text"
+          id="extra-flags-${id}"
+          class="deploy-flags-input"
+          placeholder="Additional flags (dev only), e.g. --release --source-maps"
+          ${isDeploying ? "disabled" : ""}
+        />
+      </div>` : ""}
 
       <div class="card-footer-row">
         <label class="build-runner-label" title="Run dart run build_runner clean + build before flutter build">
@@ -215,7 +227,10 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
     deployBtn.addEventListener("click", () => {
       const b = getBranchValue(id);
       const runBuildRunner = document.getElementById(`build-runner-${id}`)?.checked ?? false;
-      if (b) onDeploy(id, b, runBuildRunner);
+      const additionalFlags = isDevEnv
+        ? (document.getElementById(`extra-flags-${id}`)?.value?.trim() ?? "")
+        : "";
+      if (b) onDeploy(id, b, runBuildRunner, additionalFlags);
     });
 
     const logBtn = document.getElementById(`log-${id}`);
