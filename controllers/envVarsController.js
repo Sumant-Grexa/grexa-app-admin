@@ -45,15 +45,20 @@ export async function writeEnvVars(req, res) {
     log.push("✓ Written .env.prod");
   }
 
-  log.push("→ Running: dart run build_runner build --delete-conflicting-outputs");
+  const cleanCmd = "dart run build_runner clean";
+  const buildCmd = "dart run build_runner build --delete-conflicting-outputs";
 
   try {
-    const { stdout, stderr } = await execAsync(
-      "dart run build_runner build --delete-conflicting-outputs",
-      { cwd: env.repoPath }
-    );
-    if (stdout) log.push(...stdout.trim().split("\n").filter(Boolean));
-    if (stderr) log.push(...stderr.trim().split("\n").filter(Boolean));
+    log.push(`→ Running: ${cleanCmd}`);
+    const cleanResult = await execAsync(cleanCmd, { cwd: env.repoPath });
+    if (cleanResult.stdout) log.push(...cleanResult.stdout.trim().split("\n").filter(Boolean));
+    if (cleanResult.stderr) log.push(...cleanResult.stderr.trim().split("\n").filter(Boolean));
+
+    log.push(`→ Running: ${buildCmd}`);
+    const buildResult = await execAsync(buildCmd, { cwd: env.repoPath });
+    if (buildResult.stdout) log.push(...buildResult.stdout.trim().split("\n").filter(Boolean));
+    if (buildResult.stderr) log.push(...buildResult.stderr.trim().split("\n").filter(Boolean));
+
     log.push("✓ build_runner completed");
     res.json({ ok: true, log });
   } catch (err) {
