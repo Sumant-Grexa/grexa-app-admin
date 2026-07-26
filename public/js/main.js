@@ -4,6 +4,7 @@ import { renderEnvList, populateSelect, getBranchValue, updateHeaderDot, initDro
 import { initLog, openLog, startLogPolling } from "./log.js";
 import { initAddEnvModal, initRemoveEnvModal } from "./envManager.js";
 import { initEnvVarsModal } from "./envVarsModal.js";
+import { initSyncDevEnvModal } from "./syncEnvVarsModal.js";
 
 /* ── State ─────────────────────────────────────────────────────────────────── */
 let statusData = {};
@@ -77,6 +78,7 @@ initDropdowns();
 initAddEnvModal(loadStatus);
 const removeEnvModal = initRemoveEnvModal(loadStatus);
 const envVarsModal   = initEnvVarsModal();
+initSyncDevEnvModal(() => statusData, loadStatus);
 
 document.getElementById("refresh-btn").addEventListener("click", loadStatus);
 
