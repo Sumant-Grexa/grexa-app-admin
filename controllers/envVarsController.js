@@ -33,13 +33,57 @@ async function runBuildRunner(repoPath, log) {
   log.push("✓ build_runner completed");
 }
 
+function ensureEnvVarsPassword(password, res) {
+  if (password !== ENV_VARS_PASSWORD) {
+    res.status(401).json({ error: "Wrong password" });
+    return false;
+  }
+  return true;
+}
+
+function getEnvById(envId) {
+  return getEnvs()[envId];
+}
+
+async function syncSourceToDestinationEnv(sourceEnvId, destinationEnvId, log) {
+  const sourceEnv = getEnvById(sourceEnvId);
+  if (!sourceEnv) throw new Error(`Source environment "${sourceEnvId}" not found`);
+  if (sourceEnv.flavor !== "dev") throw new Error("Source environment must be a dev flavor environment");
+
+  const destinationEnv = getEnvById(destinationEnvId);
+  if (!destinationEnv) throw new Error(`Destination environment "${destinationEnvId}" not found`);
+  if (destinationEnv.flavor !== "dev") {
+    throw new Error("Destination environment must be a dev flavor environment");
+  }
+
+  const sourceDevPath = join(sourceEnv.repoPath, ".env.dev");
+  const sourceProdPath = join(sourceEnv.repoPath, ".env.prod");
+  if (!existsSync(sourceDevPath)) throw new Error(`Source .env.dev not found at ${sourceDevPath}`);
+  if (!existsSync(sourceProdPath)) throw new Error(`Source .env.prod not found at ${sourceProdPath}`);
+
+  const sourceDevContent = readFileSync(sourceDevPath, "utf-8");
+  const sourceProdContent = readFileSync(sourceProdPath, "utf-8");
+
+  writeFileSync(join(destinationEnv.repoPath, ".env.dev"), sourceDevContent, "utf-8");
+  writeFileSync(join(destinationEnv.repoPath, ".env.prod"), sourceProdContent, "utf-8");
+  log.push(`✓ Written .env.dev from ${sourceEnvId}`);
+  log.push(`✓ Written .env.prod from ${sourceEnvId}`);
+
+  await runBuildRunner(destinationEnv.repoPath, log);
+  return {
+    sourceEnvId,
+    destinationEnvId,
+    destinationLabel: destinationEnv.label,
+  };
+}
+
 export async function readEnvVars(req, res) {
   const { envId } = req.params;
   const { password } = req.body;
 
-  if (password !== ENV_VARS_PASSWORD) return res.status(401).json({ error: "Wrong password" });
+  if (!ensureEnvVarsPassword(password, res)) return;
 
-  const env = getEnvs()[envId];
+  const env = getEnvById(envId);
   if (!env) return res.status(404).json({ error: "Environment not found" });
 
   const devPath  = join(env.repoPath, ".env.dev");
@@ -55,9 +99,9 @@ export async function writeEnvVars(req, res) {
   const { envId } = req.params;
   const { password, devContent, prodContent } = req.body;
 
-  if (password !== ENV_VARS_PASSWORD) return res.status(401).json({ error: "Wrong password" });
+  if (!ensureEnvVarsPassword(password, res)) return;
 
-  const env = getEnvs()[envId];
+  const env = getEnvById(envId);
   if (!env) return res.status(404).json({ error: "Environment not found" });
 
   const log = [];
@@ -81,78 +125,27 @@ export async function writeEnvVars(req, res) {
   }
 }
 
-export async function syncDevEnvVars(req, res) {
-  const { password, referenceEnvId } = req.body;
-
-  if (password !== ENV_VARS_PASSWORD) return res.status(401).json({ error: "Wrong password" });
-
-  const envs = getEnvs();
-  const referenceEnv = envs[referenceEnvId];
-  if (!referenceEnv) return res.status(404).json({ error: "Reference environment not found" });
-  if (referenceEnv.flavor !== "dev") {
-    return res.status(400).json({ error: "Reference environment must be a dev flavor environment" });
-  }
-
-  const devEnvs = Object.values(envs).filter((env) => env.flavor === "dev");
-  if (!devEnvs.length) return res.status(400).json({ error: "No dev environments found" });
-
-  const referenceDevPath = join(referenceEnv.repoPath, ".env.dev");
-  const referenceProdPath = join(referenceEnv.repoPath, ".env.prod");
-
-  if (!existsSync(referenceDevPath)) {
-    return res.status(400).json({ error: `Reference .env.dev not found at ${referenceDevPath}` });
-  }
-  if (!existsSync(referenceProdPath)) {
-    return res.status(400).json({ error: `Reference .env.prod not found at ${referenceProdPath}` });
-  }
-
-  const sourceDevContent = readFileSync(referenceDevPath, "utf-8");
-  const sourceProdContent = readFileSync(referenceProdPath, "utf-8");
-
+export async function syncEnvVarsBySourceDestination(req, res) {
+  const { password, sourceEnvId, destinationEnvId } = req.body;
+  if (!ensureEnvVarsPassword(password, res)) return;
   const log = [];
-  const results = [];
-  log.push(`Reference: ${referenceEnv.label} (${referenceEnv.id})`);
-  log.push(`Dev env targets: ${devEnvs.length}`);
-
-  for (const env of devEnvs) {
-    const envLog = [];
-    try {
-      writeFileSync(join(env.repoPath, ".env.dev"), sourceDevContent, "utf-8");
-      writeFileSync(join(env.repoPath, ".env.prod"), sourceProdContent, "utf-8");
-      envLog.push("✓ Written .env.dev");
-      envLog.push("✓ Written .env.prod");
-
-      await runBuildRunner(env.repoPath, envLog);
-
-      results.push({ envId: env.id, label: env.label, status: "success" });
-    } catch (err) {
-      appendExecError(envLog, err);
-      envLog.push(`✗ Sync failed: ${err.message}`);
-      results.push({
-        envId: env.id,
-        label: env.label,
-        status: "error",
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    for (const line of envLog) {
-      log.push(`[${env.id}] ${line}`);
-    }
+  if (!sourceEnvId || !destinationEnvId) {
+    return res.status(400).json({ error: "sourceEnvId and destinationEnvId are required" });
   }
 
-  const failed = results.filter((r) => r.status === "error").length;
-  const success = results.length - failed;
-  const ok = failed === 0;
-  log.push(`Summary: ${success}/${results.length} synced successfully`);
-
-  res.json({
-    ok,
-    referenceEnvId,
-    results,
-    successCount: success,
-    failedCount: failed,
-    error: ok ? undefined : `${failed} environment(s) failed to sync`,
-    log,
-  });
+  try {
+    const result = await syncSourceToDestinationEnv(sourceEnvId, destinationEnvId, log);
+    res.json({ ok: true, ...result, log });
+  } catch (err) {
+    appendExecError(log, err);
+    const message = err instanceof Error ? err.message : String(err);
+    log.push(`✗ Sync failed: ${message}`);
+    res.status(500).json({
+      ok: false,
+      sourceEnvId,
+      destinationEnvId,
+      error: message,
+      log,
+    });
+  }
 }

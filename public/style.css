@@ -882,6 +882,86 @@ main {
   border-radius: var(--radius);
 }
 
+.sync-progress-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg3);
+  padding: 10px;
+}
+
+.sync-progress-title {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.sync-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-progress-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.sync-progress-env {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sync-progress-note {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sync-status-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.sync-status-badge.pending {
+  color: var(--muted);
+  background: var(--bg2);
+  border-color: var(--border2);
+}
+
+.sync-status-badge.ongoing {
+  color: var(--yellow);
+  background: #fef9c3;
+  border-color: #fcd34d;
+  animation: pulse 1.2s infinite;
+}
+
+.sync-status-badge.done {
+  color: var(--green);
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.sync-status-badge.failed {
+  color: var(--red);
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 1000px) {
   .env-grid { grid-template-columns: repeat(2, 1fr); }

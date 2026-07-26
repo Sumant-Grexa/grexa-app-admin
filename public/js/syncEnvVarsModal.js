@@ -1,3 +1,9 @@
+import {
+  getAllDevEnvEntries,
+  getFreshDevEnvEntries,
+  runSyncForAllDevEnvs,
+} from "./syncEnvVarsRunner.js";
+
 function findDefaultReferenceEnvId(devEnvEntries) {
   const preprodWeb = devEnvEntries.find(([, env]) =>
     typeof env?.repoPath === "string" && /\/preprod-web\/?$/.test(env.repoPath)
@@ -11,6 +17,9 @@ function findDefaultReferenceEnvId(devEnvEntries) {
 }
 
 export function initSyncDevEnvModal(getStatusData, onSuccess) {
+  const USE_PARALLEL_SYNC = true;
+  const PARALLEL_SYNC_CONCURRENCY = 3;
+
   const modal = document.getElementById("sync-dev-envs-modal");
   const openBtn = document.getElementById("sync-dev-envs-btn");
   const closeBtn = document.getElementById("sync-dev-envs-close");
@@ -23,6 +32,10 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
   const errorEl = document.getElementById("sync-dev-envs-error");
   const logWrap = document.getElementById("sync-dev-envs-log-wrap");
   const logEl = document.getElementById("sync-dev-envs-log");
+  const progressWrap = document.getElementById("sync-dev-envs-progress-wrap");
+  const progressListEl = document.getElementById("sync-dev-envs-progress-list");
+
+  const progressRows = {};
 
   function setError(el, msg) {
     el.textContent = msg;
@@ -34,19 +47,65 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     el.classList.add("hidden");
   }
 
-  function showLog(lines) {
-    logEl.textContent = lines.join("\n");
+  function clearLog() {
+    logWrap.classList.add("hidden");
+    logEl.textContent = "";
+  }
+
+  function appendLogBlock(envId, lines) {
+    if (!Array.isArray(lines) || !lines.length) return;
+    const block = lines.map((line) => `[${envId}] ${line}`).join("\n");
+    logEl.textContent = logEl.textContent ? `${logEl.textContent}\n${block}` : block;
     logWrap.classList.remove("hidden");
     logEl.scrollTop = logEl.scrollHeight;
   }
 
-  function getDevEnvEntries() {
-    const statusData = typeof getStatusData === "function" ? getStatusData() : {};
-    return Object.entries(statusData || {}).filter(([, env]) => env?.flavor === "dev");
+  function setRowStatus(envId, status, note = "") {
+    const row = progressRows[envId];
+    if (!row) return;
+    row.badge.className = `sync-status-badge ${status}`;
+    row.badge.textContent = status.toUpperCase();
+    row.note.textContent = note;
   }
 
-  function populateReferenceOptions() {
-    const devEnvEntries = getDevEnvEntries();
+  function getStatusDataSafe() {
+    return typeof getStatusData === "function" ? getStatusData() : {};
+  }
+
+  function renderProgressRows(devEnvEntries) {
+    progressListEl.innerHTML = "";
+    Object.keys(progressRows).forEach((k) => delete progressRows[k]);
+
+    if (!devEnvEntries.length) {
+      progressWrap.classList.add("hidden");
+      return;
+    }
+
+    for (const [envId, env] of devEnvEntries) {
+      const row = document.createElement("div");
+      row.className = "sync-progress-row";
+      row.innerHTML = `
+        <span class="sync-progress-env">${env.label || envId} (${envId})</span>
+        <span class="sync-status-badge pending">PENDING</span>
+        <span class="sync-progress-note"></span>
+      `;
+      const badge = row.querySelector(".sync-status-badge");
+      const note = row.querySelector(".sync-progress-note");
+      progressRows[envId] = { row, badge, note };
+      progressListEl.appendChild(row);
+    }
+
+    progressWrap.classList.remove("hidden");
+  }
+
+  async function populateReferenceOptions() {
+    let devEnvEntries = getAllDevEnvEntries(getStatusDataSafe());
+    try {
+      devEnvEntries = await getFreshDevEnvEntries();
+    } catch {
+      // Fall back to cached status data if latest fetch fails.
+    }
+
     referenceSelect.innerHTML = "";
 
     for (const [envId, env] of devEnvEntries) {
@@ -68,18 +127,18 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
       ? `Default reference: ${defaultRepoName || defaultEnvId}`
       : "No dev environments available.";
 
+    renderProgressRows(devEnvEntries);
     runBtn.disabled = !defaultEnvId;
   }
 
-  function open() {
+  async function open() {
     passwordInput.value = "";
     clearError(passwordErrorEl);
     clearError(errorEl);
-    logWrap.classList.add("hidden");
-    logEl.textContent = "";
+    clearLog();
     runBtn.disabled = false;
     runBtn.textContent = "Sync All & Run";
-    populateReferenceOptions();
+    await populateReferenceOptions();
     modal.classList.remove("hidden");
     passwordInput.focus();
   }
@@ -95,55 +154,57 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
 
   runBtn.addEventListener("click", async () => {
     const password = passwordInput.value;
-    const referenceEnvId = referenceSelect.value;
+    const sourceEnvId = referenceSelect.value;
 
     if (!password) {
       setError(passwordErrorEl, "Password is required.");
       return;
     }
-    if (!referenceEnvId) {
+    if (!sourceEnvId) {
       setError(errorEl, "Select a reference environment.");
       return;
     }
 
     clearError(passwordErrorEl);
     clearError(errorEl);
-    logWrap.classList.add("hidden");
+    clearLog();
+    renderProgressRows([]);
     runBtn.disabled = true;
     runBtn.textContent = "Syncing…";
 
+    let result;
     try {
-      const res = await fetch("/api/environments/env-vars/sync-dev", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, referenceEnvId }),
+      result = await runSyncForAllDevEnvs({
+        password,
+        sourceEnvId,
+        parallel: USE_PARALLEL_SYNC,
+        concurrency: PARALLEL_SYNC_CONCURRENCY,
+        onTargetsResolved: (devEnvEntries) => renderProgressRows(devEnvEntries),
+        onStart: (envId) => setRowStatus(envId, "ongoing", "Running build_runner..."),
+        onSuccess: (envId) => setRowStatus(envId, "done", "Synced successfully"),
+        onFailed: (envId, reason) => setRowStatus(envId, "failed", reason),
+        onLog: (envId, lines) => appendLogBlock(envId, lines),
       });
-
-      let data = {};
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
-      }
-
-      if (res.status === 401) {
-        setError(passwordErrorEl, data.error || "Wrong password");
-        return;
-      }
-
-      if (Array.isArray(data.log)) showLog(data.log);
-
-      if (!res.ok || data.ok === false) {
-        setError(errorEl, data.error || "Sync failed");
-        return;
-      }
-
-      if (typeof onSuccess === "function") await onSuccess();
     } catch (err) {
       setError(errorEl, err instanceof Error ? err.message : String(err));
-    } finally {
       runBtn.disabled = false;
       runBtn.textContent = "Sync All & Run";
+      return;
     }
+
+    if (result.total === 0) {
+      setError(errorEl, "No dev environments available.");
+    } else if (result.aborted && result.fatalError) {
+      setError(passwordErrorEl, result.fatalError);
+    } else if (result.failed > 0) {
+      setError(errorEl, `${result.failed}/${result.total} environment(s) failed.`);
+    }
+
+    if (result.done > 0 && typeof onSuccess === "function") {
+      await onSuccess();
+    }
+
+    runBtn.disabled = false;
+    runBtn.textContent = "Sync All & Run";
   });
 }
