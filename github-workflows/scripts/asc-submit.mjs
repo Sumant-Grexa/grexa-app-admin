@@ -19,6 +19,11 @@ for (const [name, val] of Object.entries({ ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVAT
   if (!val) throw new Error(`Missing env var: ${name}`);
 }
 
+const ASC_PRIVATE_KEY_NORMALIZED = ASC_PRIVATE_KEY.replace(/\\n/g, "\n").trim();
+if (!ASC_PRIVATE_KEY_NORMALIZED.includes("BEGIN PRIVATE KEY")) {
+  throw new Error("ASC_PRIVATE_KEY does not look like a valid .p8 private key.");
+}
+
 const BASE = "https://api.appstoreconnect.apple.com/v1";
 
 const ALLOWED_ATTRIBUTES = {
@@ -82,7 +87,8 @@ function generateToken() {
   const data = `${header}.${payload}`;
   const sign = createSign("SHA256");
   sign.update(data);
-  const sig = sign.sign(ASC_PRIVATE_KEY, "base64url");
+  // JWT ES256 expects JOSE signature format (raw r||s / IEEE-P1363), not DER.
+  const sig = sign.sign({ key: ASC_PRIVATE_KEY_NORMALIZED, dsaEncoding: "ieee-p1363" }).toString("base64url");
   return `${data}.${sig}`;
 }
 

@@ -14,10 +14,6 @@ on:
         description: "Release type: full | phased | manual"
         required: false
         default: "full"
-      run_build_runner:
-        description: "Run build_runner before build"
-        required: false
-        default: "false"
 
 jobs:
   build-and-upload:
@@ -55,7 +51,6 @@ jobs:
           echo "${{ secrets.ENV_PROD }}" > .env.prod
 
       - name: Run build runner
-        if: inputs.run_build_runner == 'true'
         run: dart run build_runner build --delete-conflicting-outputs
 
       - name: Install CocoaPods dependencies
@@ -116,17 +111,12 @@ jobs:
       #       -t lib/main_prod.dart \
       #       --export-options-plist=ios/ExportOptions.plist
       
-      - name: Build IPA with logs
+      - name: Build IPA
         run: |
-          set -o pipefail
-          mkdir -p build_logs
-
           flutter build ipa \
             --flavor prod \
             -t lib/main_prod.dart \
-            --export-options-plist=ios/ExportOptions.plist \
-            -v \
-            2>&1 | tee build_logs/ios_build.log
+            --export-options-plist=ios/ExportOptions.plist
         env:
           UPLOAD_SYMBOLS: 0
 
@@ -137,13 +127,6 @@ jobs:
             -gsp ios/Runner/GoogleService-Info.plist \
             -p ios \
             "$DSYM_PATH"
-
-      - name: Upload iOS logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-build-logs
-          path: build_logs/
 
       - name: Set release vars
         id: vars
