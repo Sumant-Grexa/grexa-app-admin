@@ -14,8 +14,12 @@ export async function getFreshDevEnvEntries() {
   return getAllDevEnvEntries(statusData);
 }
 
-async function callSyncOne({ password, sourceEnvId, destinationEnvId, onLog }) {
-  const res = await fetch("/api/environments/env-vars/sync-one", {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function startSyncOneTask({ password, sourceEnvId, destinationEnvId }) {
+  const res = await fetch("/api/environments/env-vars/sync-one/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password, sourceEnvId, destinationEnvId }),
@@ -28,15 +32,57 @@ async function callSyncOne({ password, sourceEnvId, destinationEnvId, onLog }) {
     data = {};
   }
 
-  if (Array.isArray(data.log)) onLog?.(destinationEnvId, data.log);
-
   if (res.status === 401) {
     return { status: "auth_error", reason: toErrorMessage(data, "Wrong password"), data };
   }
   if (!res.ok || data.ok === false) {
     return { status: "failed", reason: toErrorMessage(data, "Sync failed"), data };
   }
-  return { status: "success", data };
+  return { status: "success", taskId: data.taskId, data };
+}
+
+async function pollSyncOneTask({
+  taskId,
+  destinationEnvId,
+  onLog,
+  pollingIntervalMs = 2000,
+}) {
+  let sentLogLines = 0;
+
+  while (true) {
+    const data = await api("GET", `/api/environments/env-vars/sync-one/status/${taskId}`);
+    const task = data.task || {};
+
+    const currentLog = Array.isArray(task.log) ? task.log : [];
+    if (currentLog.length > sentLogLines) {
+      const nextChunk = currentLog.slice(sentLogLines);
+      sentLogLines = currentLog.length;
+      onLog?.(destinationEnvId, nextChunk);
+    }
+
+    if (task.status === "success") {
+      return { status: "success", data: task };
+    }
+    if (task.status === "error") {
+      return {
+        status: "failed",
+        reason: toErrorMessage(task, "Sync failed"),
+        data: task,
+      };
+    }
+
+    await sleep(pollingIntervalMs);
+  }
+}
+
+async function callSyncOne({ password, sourceEnvId, destinationEnvId, onLog }) {
+  const startResult = await startSyncOneTask({ password, sourceEnvId, destinationEnvId });
+  if (startResult.status !== "success") return startResult;
+  return pollSyncOneTask({
+    taskId: startResult.taskId,
+    destinationEnvId,
+    onLog,
+  });
 }
 
 export async function runSyncForAllDevEnvs({
@@ -51,8 +97,14 @@ export async function runSyncForAllDevEnvs({
   onLog,
 }) {
   const devEnvEntries = await getFreshDevEnvEntries();
-  const targets = devEnvEntries.map(([envId]) => envId);
-  onTargetsResolved?.(devEnvEntries);
+  const targets = devEnvEntries
+    .map(([envId]) => envId)
+    .filter((envId) => envId !== sourceEnvId);
+  onTargetsResolved?.({
+    devEnvEntries,
+    targetEnvIds: targets,
+    sourceEnvId,
+  });
 
   let done = 0;
   let failed = 0;

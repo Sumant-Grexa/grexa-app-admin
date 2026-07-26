@@ -2,12 +2,15 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { randomUUID } from "crypto";
 import { getEnvs } from "../config/environments.js";
 
 const execAsync = promisify(exec);
 const ENV_VARS_PASSWORD = process.env.ENV_VARS_PASSWORD || "grexa@envvars";
 const BUILD_RUNNER_CLEAN_CMD = "dart run build_runner clean";
 const BUILD_RUNNER_BUILD_CMD = "dart run build_runner build --delete-conflicting-outputs";
+const SYNC_TASK_TTL_MS = 30 * 60 * 1000;
+const syncEnvVarsTasks = new Map();
 
 function appendOutput(log, output) {
   if (!output) return;
@@ -45,6 +48,29 @@ function getEnvById(envId) {
   return getEnvs()[envId];
 }
 
+function cleanupExpiredSyncTasks() {
+  const now = Date.now();
+  for (const [taskId, task] of syncEnvVarsTasks.entries()) {
+    if (!task.finishedAt) continue;
+    const age = now - new Date(task.finishedAt).getTime();
+    if (age > SYNC_TASK_TTL_MS) syncEnvVarsTasks.delete(taskId);
+  }
+}
+
+function serializeSyncTask(task) {
+  return {
+    taskId: task.taskId,
+    sourceEnvId: task.sourceEnvId,
+    destinationEnvId: task.destinationEnvId,
+    status: task.status,
+    error: task.error,
+    log: task.log,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+  };
+}
+
 async function syncSourceToDestinationEnv(sourceEnvId, destinationEnvId, log) {
   const sourceEnv = getEnvById(sourceEnvId);
   if (!sourceEnv) throw new Error(`Source environment "${sourceEnvId}" not found`);
@@ -75,6 +101,27 @@ async function syncSourceToDestinationEnv(sourceEnvId, destinationEnvId, log) {
     destinationEnvId,
     destinationLabel: destinationEnv.label,
   };
+}
+
+async function runSyncEnvVarsTask(taskId) {
+  const task = syncEnvVarsTasks.get(taskId);
+  if (!task) return;
+
+  task.status = "running";
+  task.startedAt = new Date().toISOString();
+
+  try {
+    await syncSourceToDestinationEnv(task.sourceEnvId, task.destinationEnvId, task.log);
+    task.status = "success";
+  } catch (err) {
+    appendExecError(task.log, err);
+    const message = err instanceof Error ? err.message : String(err);
+    task.log.push(`✗ Sync failed: ${message}`);
+    task.error = message;
+    task.status = "error";
+  } finally {
+    task.finishedAt = new Date().toISOString();
+  }
 }
 
 export async function readEnvVars(req, res) {
@@ -148,4 +195,39 @@ export async function syncEnvVarsBySourceDestination(req, res) {
       log,
     });
   }
+}
+
+export function startSyncEnvVarsTask(req, res) {
+  const { password, sourceEnvId, destinationEnvId } = req.body;
+  if (!ensureEnvVarsPassword(password, res)) return;
+  cleanupExpiredSyncTasks();
+
+  if (!sourceEnvId || !destinationEnvId) {
+    return res.status(400).json({ error: "sourceEnvId and destinationEnvId are required" });
+  }
+
+  const taskId = randomUUID();
+  const task = {
+    taskId,
+    sourceEnvId,
+    destinationEnvId,
+    status: "queued",
+    error: null,
+    log: [],
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    finishedAt: null,
+  };
+  syncEnvVarsTasks.set(taskId, task);
+
+  void runSyncEnvVarsTask(taskId);
+  res.json({ ok: true, taskId, status: task.status });
+}
+
+export function getSyncEnvVarsTaskStatus(req, res) {
+  const { taskId } = req.params;
+  cleanupExpiredSyncTasks();
+  const task = syncEnvVarsTasks.get(taskId);
+  if (!task) return res.status(404).json({ error: "Sync task not found" });
+  res.json({ ok: true, task: serializeSyncTask(task) });
 }

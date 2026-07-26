@@ -42,6 +42,31 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     el.classList.remove("hidden");
   }
 
+  async function notifyWhenDone(result) {
+    if (!("Notification" in window)) return;
+
+    const title = result.failed === 0
+      ? "Env sync completed"
+      : "Env sync completed with failures";
+    const body = `${result.done}/${result.total} succeeded${result.failed ? `, ${result.failed} failed` : ""}`;
+
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+      return;
+    }
+
+    if (Notification.permission === "default") {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+          new Notification(title, { body });
+        }
+      } catch {
+        // Ignore notification errors.
+      }
+    }
+  }
+
   function clearError(el) {
     el.textContent = "";
     el.classList.add("hidden");
@@ -58,6 +83,11 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     logEl.textContent = logEl.textContent ? `${logEl.textContent}\n${block}` : block;
     logWrap.classList.remove("hidden");
     logEl.scrollTop = logEl.scrollHeight;
+
+    const runningLines = lines.filter((line) => String(line).startsWith("→ Running: "));
+    if (runningLines.length) {
+      setRowCommand(envId, runningLines[runningLines.length - 1]);
+    }
   }
 
   function setRowStatus(envId, status, note = "") {
@@ -68,11 +98,17 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     row.note.textContent = note;
   }
 
+  function setRowCommand(envId, command = "") {
+    const row = progressRows[envId];
+    if (!row) return;
+    row.command.textContent = command;
+  }
+
   function getStatusDataSafe() {
     return typeof getStatusData === "function" ? getStatusData() : {};
   }
 
-  function renderProgressRows(devEnvEntries) {
+  function renderProgressRows(devEnvEntries, targetEnvIds = [], sourceEnvId = "") {
     progressListEl.innerHTML = "";
     Object.keys(progressRows).forEach((k) => delete progressRows[k]);
 
@@ -82,17 +118,34 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     }
 
     for (const [envId, env] of devEnvEntries) {
+      const isSourceEnv = envId === sourceEnvId;
+      const isTarget = targetEnvIds.includes(envId);
       const row = document.createElement("div");
       row.className = "sync-progress-row";
       row.innerHTML = `
-        <span class="sync-progress-env">${env.label || envId} (${envId})</span>
-        <span class="sync-status-badge pending">PENDING</span>
-        <span class="sync-progress-note"></span>
+        <div class="sync-progress-top">
+          <span class="sync-progress-env">${env.label || envId} (${envId})</span>
+          <span class="sync-status-badge pending">PENDING</span>
+        </div>
+        <div class="sync-progress-command">Waiting...</div>
+        <div class="sync-progress-note"></div>
       `;
       const badge = row.querySelector(".sync-status-badge");
+      const command = row.querySelector(".sync-progress-command");
       const note = row.querySelector(".sync-progress-note");
-      progressRows[envId] = { row, badge, note };
+      progressRows[envId] = { row, badge, command, note };
       progressListEl.appendChild(row);
+
+      if (isSourceEnv) {
+        setRowStatus(envId, "skipped", "Reference env (not synced)");
+        setRowCommand(envId, "Skipped");
+      } else if (!isTarget) {
+        setRowStatus(envId, "skipped", "Not in target set");
+        setRowCommand(envId, "Skipped");
+      } else {
+        setRowStatus(envId, "pending", "Waiting to start");
+        setRowCommand(envId, "Waiting...");
+      }
     }
 
     progressWrap.classList.remove("hidden");
@@ -127,7 +180,11 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
       ? `Default reference: ${defaultRepoName || defaultEnvId}`
       : "No dev environments available.";
 
-    renderProgressRows(devEnvEntries);
+    renderProgressRows(
+      devEnvEntries,
+      devEnvEntries.map(([envId]) => envId).filter((envId) => envId !== defaultEnvId),
+      defaultEnvId
+    );
     runBtn.disabled = !defaultEnvId;
   }
 
@@ -168,7 +225,7 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     clearError(passwordErrorEl);
     clearError(errorEl);
     clearLog();
-    renderProgressRows([]);
+    renderProgressRows([], [], sourceEnvId);
     runBtn.disabled = true;
     runBtn.textContent = "Syncing…";
 
@@ -179,10 +236,21 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
         sourceEnvId,
         parallel: USE_PARALLEL_SYNC,
         concurrency: PARALLEL_SYNC_CONCURRENCY,
-        onTargetsResolved: (devEnvEntries) => renderProgressRows(devEnvEntries),
-        onStart: (envId) => setRowStatus(envId, "ongoing", "Running build_runner..."),
-        onSuccess: (envId) => setRowStatus(envId, "done", "Synced successfully"),
-        onFailed: (envId, reason) => setRowStatus(envId, "failed", reason),
+        onTargetsResolved: ({ devEnvEntries, targetEnvIds, sourceEnvId: resolvedSourceEnvId }) => {
+          renderProgressRows(devEnvEntries, targetEnvIds, resolvedSourceEnvId);
+        },
+        onStart: (envId) => {
+          setRowStatus(envId, "ongoing", "Running...");
+          setRowCommand(envId, "Starting...");
+        },
+        onSuccess: (envId) => {
+          setRowStatus(envId, "done", "Synced successfully");
+          setRowCommand(envId, "Completed");
+        },
+        onFailed: (envId, reason) => {
+          setRowStatus(envId, "failed", reason);
+          setRowCommand(envId, "Failed");
+        },
         onLog: (envId, lines) => appendLogBlock(envId, lines),
       });
     } catch (err) {
@@ -203,6 +271,8 @@ export function initSyncDevEnvModal(getStatusData, onSuccess) {
     if (result.done > 0 && typeof onSuccess === "function") {
       await onSuccess();
     }
+
+    await notifyWhenDone(result);
 
     runBtn.disabled = false;
     runBtn.textContent = "Sync All & Run";
