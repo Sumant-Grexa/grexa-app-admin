@@ -63,5 +63,44 @@
       "user": "sumant",
       "path": "/var/www/preprod-app/carlsberg-web"
     }
+  },
+  "brocode": {
+    "id": "brocode",
+    "label": "brocode",
+    "subdomain": "brocode",
+    "repoPath": "/home/ubuntu/grexa-app/brocode-web",
+    "buildOutput": "/home/ubuntu/grexa-app/brocode-web/build/web",
+    "flavor": "dev",
+    "remote": {
+      "host": "34.47.166.243",
+      "user": "sumant",
+      "path": "/var/www/preprod-app/brocode-web"
+    }
+  },
+  "medusa": {
+    "id": "medusa",
+    "label": "medusa",
+    "subdomain": "medusa",
+    "repoPath": "/home/ubuntu/grexa-app/medusa-web",
+    "buildOutput": "/home/ubuntu/grexa-app/medusa-web/build/web",
+    "flavor": "dev",
+    "remote": {
+      "host": "34.47.166.243",
+      "user": "sumant",
+      "path": "/var/www/preprod-app/medusa-web"
+    }
+  },
+  "budweiser": {
+    "id": "budweiser",
+    "label": "budweiser",
+    "subdomain": "budweiser",
+    "repoPath": "/home/ubuntu/grexa-app/budweiser-web",
+    "buildOutput": "/home/ubuntu/grexa-app/budweiser-web/build/web",
+    "flavor": "dev",
+    "remote": {
+      "host": "34.47.166.243",
+      "user": "sumant",
+      "path": "/var/www/preprod-app/budweiser-web"
+    }
   }
 }
