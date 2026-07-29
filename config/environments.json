@@ -59,8 +59,8 @@
     "buildOutput": "/home/ubuntu/grexa-app/carlsberg-web/build/web",
     "flavor": "dev",
     "remote": {
-      "host": "34.47.166.243",
-      "user": "sumant",
+      "host": "20.40.62.137",
+      "user": "grexa-admin",
       "path": "/var/www/preprod-app/carlsberg-web"
     }
   }
