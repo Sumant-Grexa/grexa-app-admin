@@ -60,7 +60,7 @@
     "flavor": "dev",
     "remote": {
       "host": "20.40.62.137",
-      "user": "grexa-admin",
+      "user": "sumant",
       "path": "/var/www/preprod-app/carlsberg-web"
     }
   },
