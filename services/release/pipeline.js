@@ -1,4 +1,5 @@
 import { getReleaseConfig } from "../../config/releaseConfig.js";
+import { syncSupportAgentRagDocsToBeacon } from "./beaconDocsSync.js";
 
 // ─── Release State ─────────────────────────────────────────────────────────────
 export const releaseState = {
@@ -251,9 +252,24 @@ function extractNotePoints(notes) {
     .slice(0, 30);
 }
 
+function buildBeaconDocsChatMessage({ version, documents }) {
+  const lines = [
+    `Beacon docs added for v${version}`,
+    "",
+    ...documents.map((doc) => `• ${doc.fileName}: ${doc.fileUrl}`),
+  ];
+  return { text: lines.join("\n") };
+}
+
 // ─── Facade ────────────────────────────────────────────────────────────────────
 export async function runReleasePipeline(options) {
-  const { githubToken, githubRepo, googleChatWebhookUrl } = getReleaseConfig();
+  const {
+    githubToken,
+    githubRepo,
+    googleChatWebhookUrl,
+    googleChatBeaconDocsWebhookUrl,
+    beacon,
+  } = getReleaseConfig();
   const log = [];
   const append = (line) => {
     log.push(line);
@@ -398,6 +414,12 @@ export async function runReleasePipeline(options) {
       append
     );
 
+    append("Syncing support-agent-rag docs to Beacon...");
+    const beaconSyncResult = await syncSupportAgentRagDocsToBeacon(beacon, version, append);
+    if (!beaconSyncResult.skipped) {
+      append(`Beacon docs sync complete: created=${beaconSyncResult.created}`);
+    }
+
     if (!googleChatWebhookUrl) {
       throw new Error("Missing env var: GOOGLE_CHAT_WEBHOOK_URL");
     }
@@ -411,8 +433,29 @@ export async function runReleasePipeline(options) {
       userFraction,
       iosReleaseType,
     });
-    await postGoogleChatRelease(googleChatWebhookUrl, chatPayload);
-    append("Posted release notes to Google Chat.");
+    const googleChatPosts = [
+      postGoogleChatRelease(googleChatWebhookUrl, chatPayload).then(() => {
+        append("Posted release notes to Google Chat.");
+      }),
+    ];
+
+    if (googleChatBeaconDocsWebhookUrl && beaconSyncResult.documents?.length) {
+      const beaconDocsPayload = buildBeaconDocsChatMessage({
+        version,
+        documents: beaconSyncResult.documents,
+      });
+      googleChatPosts.push(
+        postGoogleChatRelease(googleChatBeaconDocsWebhookUrl, beaconDocsPayload).then(() => {
+          append("Posted Beacon docs links to the new Google Chat space.");
+        })
+      );
+    } else if (!googleChatBeaconDocsWebhookUrl) {
+      append("Skipping Beacon docs Google Chat notification: GOOGLE_CHAT_BEACON_DOCS_WEBHOOK_URL is not configured.");
+    } else {
+      append("Skipping Beacon docs Google Chat notification: no Beacon docs were created.");
+    }
+
+    await Promise.all(googleChatPosts);
 
     Object.assign(releaseState, {
       status: "success",

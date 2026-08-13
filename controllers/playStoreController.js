@@ -1,4 +1,5 @@
 import { releaseState, runReleasePipeline } from "../services/release/pipeline.js";
+import { syncSupportAgentRagDocsToBeacon } from "../services/release/beaconDocsSync.js";
 
 const RELEASE_PASSWORD = process.env.RELEASE_PASSWORD;
 
@@ -53,4 +54,121 @@ function getReleaseLog(_req, res) {
   res.json({ log: releaseState.log, status: releaseState.status });
 }
 
-export { startRelease, getReleaseStatus, getReleaseLog };
+async function postGoogleChatMessage(webhookUrl, payload) {
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Google Chat webhook failed (${response.status}): ${text || response.statusText}`);
+  }
+}
+
+function buildBeaconDocsChatMessage({ version, documents }) {
+  return {
+    text: [
+      `Beacon docs added for v${version}`,
+      "",
+      ...documents.map((doc) => `• ${doc.fileName}: ${doc.fileUrl}`),
+    ].join("\n"),
+  };
+}
+
+async function testBeaconDocsSync(req, res) {
+  const {
+    releasePassword,
+    version,
+    localDocsDir,
+    notifyWebhookUrl,
+    beacon = {},
+    r2 = {},
+  } = req.body || {};
+
+  if (!RELEASE_PASSWORD || releasePassword !== RELEASE_PASSWORD) {
+    return res.status(401).json({ error: "Invalid release password" });
+  }
+
+  if (!version) {
+    return res.status(400).json({ error: "version is required" });
+  }
+
+  if (!localDocsDir) {
+    return res.status(400).json({ error: "localDocsDir is required" });
+  }
+
+  const requiredBeacon = [
+    ["baseUrl", beacon?.baseUrl],
+    ["accountId", beacon?.accountId],
+    ["assistantId", beacon?.assistantId],
+    ["adminEmail", beacon?.adminEmail],
+    ["adminPassword", beacon?.adminPassword],
+  ];
+  const missingBeacon = requiredBeacon.filter(([, value]) => !value).map(([key]) => `beacon.${key}`);
+
+  const requiredR2 = [
+    ["bucketName", r2?.bucketName],
+    ["endpoint", r2?.endpoint],
+    ["accessKeyId", r2?.accessKeyId],
+    ["secretAccessKey", r2?.secretAccessKey],
+    ["publicBaseUrl", r2?.publicBaseUrl],
+  ];
+  const missingR2 = requiredR2.filter(([, value]) => !value).map(([key]) => `r2.${key}`);
+
+  const missing = [...missingBeacon, ...missingR2];
+  if (missing.length) {
+    return res.status(400).json({ error: `Missing required fields: ${missing.join(", ")}` });
+  }
+
+  const log = [];
+  const append = (line) => {
+    log.push(line);
+    console.log(`[beacon-test] ${line}`);
+  };
+
+  try {
+    const syncConfig = {
+      enabled: true,
+      baseUrl: beacon.baseUrl,
+      accountId: beacon.accountId,
+      assistantId: beacon.assistantId,
+      adminEmail: beacon.adminEmail,
+      adminPassword: beacon.adminPassword,
+      r2BucketName: r2.bucketName,
+      r2Endpoint: r2.endpoint,
+      r2AccessKeyId: r2.accessKeyId,
+      r2SecretAccessKey: r2.secretAccessKey,
+      r2SessionToken: r2.sessionToken || null,
+      r2PublicBaseUrl: r2.publicBaseUrl,
+      localDocsDir,
+    };
+
+    const result = await syncSupportAgentRagDocsToBeacon(syncConfig, version, append);
+
+    if (notifyWebhookUrl && result.documents?.length) {
+      const chatPayload = buildBeaconDocsChatMessage({ version, documents: result.documents });
+      await postGoogleChatMessage(notifyWebhookUrl, chatPayload);
+      append("Posted Beacon docs links to notifyWebhookUrl.");
+    }
+
+    return res.json({
+      ok: true,
+      version,
+      localDocsDir,
+      created: result.created,
+      skipped: result.skipped,
+      documents: result.documents,
+      log,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message || String(error),
+      log,
+    });
+  }
+}
+
+export { startRelease, getReleaseStatus, getReleaseLog, testBeaconDocsSync };
