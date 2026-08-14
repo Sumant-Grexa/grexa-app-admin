@@ -43,6 +43,7 @@
         <button id="refresh-btn" class="btn-ghost">Refresh</button>
         <button id="add-env-btn" class="btn-ghost">+ Add Env</button>
         <button id="sync-dev-envs-btn" class="btn-ghost btn-sync-dev">Sync Dev Envs</button>
+        <button id="beacon-doc-sync-open-btn" class="btn-ghost">Beacon Doc Sync</button>
         <button id="release-app-btn" class="btn-release-header">&#9652; Release App</button>
         <button id="logout-btn" class="btn-ghost muted">Logout</button>
       </div>
@@ -184,6 +185,31 @@
         <button type="button" class="btn-ghost" id="sync-dev-envs-cancel">Cancel</button>
         <button type="button" class="btn-primary" id="sync-dev-envs-run">Sync All &amp; Run</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Beacon Doc Sync Modal -->
+  <div id="beacon-doc-sync-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Beacon Doc Sync</span>
+        <button class="modal-close" id="beacon-doc-sync-close">&times;</button>
+      </div>
+      <form id="beacon-doc-sync-form">
+        <div class="modal-body">
+          <div class="field-group">
+            <label class="field-label" for="beacon-sync-version">Version</label>
+            <input type="text" id="beacon-sync-version" class="field-input" placeholder="e.g. 2.36.1"
+              autocomplete="off" />
+            <span class="field-hint">Runs docs sync only for this app version.</span>
+          </div>
+          <p id="beacon-doc-sync-error" class="error-msg hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="beacon-doc-sync-cancel">Cancel</button>
+          <button type="submit" class="btn-primary" id="beacon-doc-sync-submit">Sync Beacon Docs</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -13,6 +13,10 @@ export async function startRelease(payload) {
   return api("POST", "/api/play-store/release", payload);
 }
 
+export async function triggerBeaconDocsSync(payload) {
+  return api("POST", "/api/play-store/beacon-docs-sync", payload);
+}
+
 export async function getReleaseStatus() {
   return api("GET", "/api/play-store/status");
 }

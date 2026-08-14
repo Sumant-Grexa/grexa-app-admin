@@ -1,4 +1,4 @@
-import { startRelease, getReleaseLog } from "./playStoreApi.js";
+import { startRelease, triggerBeaconDocsSync, getReleaseLog } from "./playStoreApi.js";
 import { openReleaseLog, startReleaseLogPolling } from "./log.js";
 
 /* ── Module-level state ─────────────────────────────────────────────────────── */
@@ -35,27 +35,67 @@ function setStatusBadge(status) {
 }
 
 function setButtonRunning(running) {
-  const btn = document.getElementById("ps-release-btn");
+  const releaseBtn = document.getElementById("ps-release-btn");
+  if (!releaseBtn) return;
+  if (running) {
+    releaseBtn.disabled = true;
+    releaseBtn.textContent = "Releasing…";
+  } else {
+    releaseBtn.disabled = false;
+    releaseBtn.textContent = "⚠ Release";
+  }
+}
+
+function setBeaconModalSubmitRunning(running) {
+  const btn = document.getElementById("beacon-doc-sync-submit");
   if (!btn) return;
   if (running) {
     btn.disabled = true;
-    btn.textContent = "Releasing…";
+    btn.textContent = "Syncing…";
   } else {
     btn.disabled = false;
-    btn.textContent = "⚠ Release";
+    btn.textContent = "Sync Beacon Docs";
   }
+}
+
+function showBeaconModalError(msg) {
+  const el = document.getElementById("beacon-doc-sync-error");
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = "#d32f2f";
+  el.classList.remove("hidden");
+}
+
+function showBeaconModalSuccess(msg) {
+  const el = document.getElementById("beacon-doc-sync-error");
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = "#2e7d32";
+  el.classList.remove("hidden");
+}
+
+function hideBeaconModalMessage() {
+  const el = document.getElementById("beacon-doc-sync-error");
+  if (!el) return;
+  el.classList.add("hidden");
+  el.textContent = "";
+  el.style.color = "";
 }
 
 function showError(msg) {
   const el = document.getElementById("ps-error");
   if (!el) return;
   el.textContent = msg;
+  el.style.color = "#d32f2f";
   el.classList.remove("hidden");
 }
 
 function hideError() {
   const el = document.getElementById("ps-error");
-  if (el) el.classList.add("hidden");
+  if (!el) return;
+  el.classList.add("hidden");
+  el.textContent = "";
+  el.style.color = "";
 }
 
 function startPolling(version) {
@@ -74,6 +114,49 @@ function startPolling(version) {
 
 /* ── Init ───────────────────────────────────────────────────────────────────── */
 export function initPlayStoreManager() {
+  /* Beacon Doc Sync modal open/close */
+  const beaconModal = document.getElementById("beacon-doc-sync-modal");
+  const beaconForm = document.getElementById("beacon-doc-sync-form");
+  document.getElementById("beacon-doc-sync-open-btn")?.addEventListener("click", () => {
+    hideBeaconModalMessage();
+    beaconModal?.classList.remove("hidden");
+  });
+  document.getElementById("beacon-doc-sync-close")?.addEventListener("click", () => {
+    beaconModal?.classList.add("hidden");
+  });
+  document.getElementById("beacon-doc-sync-cancel")?.addEventListener("click", () => {
+    beaconModal?.classList.add("hidden");
+  });
+  beaconModal?.addEventListener("click", (e) => {
+    if (e.target === beaconModal) beaconModal.classList.add("hidden");
+  });
+  beaconForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideBeaconModalMessage();
+
+    const version = (document.getElementById("beacon-sync-version")?.value || "").trim();
+    if (!version) {
+      showBeaconModalError("Version is required");
+      return;
+    }
+
+    setBeaconModalSubmitRunning(true);
+    try {
+      const result = await triggerBeaconDocsSync({ version });
+      const created = Number(result?.created || 0);
+      if (result?.skipped) {
+        showBeaconModalError("Beacon docs sync skipped. Check server env configuration.");
+      } else {
+        showBeaconModalSuccess(`Beacon docs sync complete. Created ${created} document(s).`);
+      }
+      await openReleaseLog(version ? `Beacon Doc Sync v${version}` : "Beacon Doc Sync");
+    } catch (err) {
+      showBeaconModalError(err.message || "Failed to trigger Beacon Doc Sync");
+    } finally {
+      setBeaconModalSubmitRunning(false);
+    }
+  });
+
   /* Release App modal open/close */
   const modal = document.getElementById("release-app-modal");
   document.getElementById("release-app-btn")?.addEventListener("click", async () => {

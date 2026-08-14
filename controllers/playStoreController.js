@@ -1,5 +1,6 @@
 import { releaseState, runReleasePipeline } from "../services/release/pipeline.js";
 import { syncSupportAgentRagDocsToBeacon } from "../services/release/beaconDocsSync.js";
+import { getReleaseConfig } from "../config/releaseConfig.js";
 
 const RELEASE_PASSWORD = process.env.RELEASE_PASSWORD;
 
@@ -52,6 +53,14 @@ function getReleaseStatus(_req, res) {
 
 function getReleaseLog(_req, res) {
   res.json({ log: releaseState.log, status: releaseState.status });
+}
+
+function appendBeaconSyncLog(localLog, line) {
+  const formatted = `[beacon-sync] ${line}`;
+  localLog.push(formatted);
+  if (!Array.isArray(releaseState.log)) releaseState.log = [];
+  releaseState.log.push(formatted);
+  console.log(`[release] ${formatted}`);
 }
 
 async function postGoogleChatMessage(webhookUrl, payload) {
@@ -171,4 +180,51 @@ async function testBeaconDocsSync(req, res) {
   }
 }
 
-export { startRelease, getReleaseStatus, getReleaseLog, testBeaconDocsSync };
+async function triggerBeaconDocsSync(req, res) {
+  const { version } = req.body || {};
+
+  if (releaseState.status === "running") {
+    return res.status(409).json({ error: "A release is currently running. Try Beacon sync after it finishes." });
+  }
+
+  const normalizedVersion = String(version || "").trim().replace(/^v/i, "");
+  if (!normalizedVersion) {
+    return res.status(400).json({ error: "version is required" });
+  }
+
+  const log = [];
+  const append = (line) => appendBeaconSyncLog(log, line);
+
+  try {
+    append(`Manual Beacon docs sync requested for v${normalizedVersion}`);
+    const { beacon, googleChatBeaconDocsWebhookUrl } = getReleaseConfig();
+    const result = await syncSupportAgentRagDocsToBeacon(beacon, normalizedVersion, append);
+
+    if (googleChatBeaconDocsWebhookUrl && result.documents?.length) {
+      const chatPayload = buildBeaconDocsChatMessage({
+        version: normalizedVersion,
+        documents: result.documents,
+      });
+      await postGoogleChatMessage(googleChatBeaconDocsWebhookUrl, chatPayload);
+      append("Posted Beacon docs links to Google Chat.");
+    }
+
+    return res.json({
+      ok: true,
+      version: normalizedVersion,
+      created: result.created,
+      skipped: result.skipped,
+      documents: result.documents,
+      log,
+    });
+  } catch (error) {
+    append(`Manual Beacon docs sync failed: ${error.message || String(error)}`);
+    return res.status(500).json({
+      ok: false,
+      error: error.message || String(error),
+      log,
+    });
+  }
+}
+
+export { startRelease, getReleaseStatus, getReleaseLog, testBeaconDocsSync, triggerBeaconDocsSync };
