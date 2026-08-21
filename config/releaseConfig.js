@@ -1,4 +1,5 @@
 const SUPPORT_AGENT_RAG_RELATIVE_PATH = "docs/support-agent-rag";
+export const BEACON_API_CALL_ENABLED_IN_CODE = false;
 
 function parseAccountIdFromBaseUrl(urlValue) {
   if (!urlValue) return null;
@@ -42,15 +43,21 @@ function loadConfig() {
   if (beaconSyncEnabled) {
     const missing = [];
     if (!flutterAppRepoPath) missing.push("FLUTTER_APP_REPO_PATH");
-    if (!beaconAccountId) missing.push("BEACON_ACCOUNT_ID (or include /api/v1/accounts/:id in BEACON_API_BASE_URL)");
-    if (!beaconAssistantId) missing.push("BEACON_ASSISTANT_ID");
-    if (!beaconAdminEmail) missing.push("BEACON_ADMIN_EMAIL");
-    if (!beaconAdminPassword) missing.push("BEACON_ADMIN_PASSWORD");
     if (!r2BucketName) missing.push("R2_BUCKET_NAME");
     if (!r2Endpoint) missing.push("R2_S3_ENDPOINT");
     if (!r2AccessKeyId) missing.push("R2_S3_ACCESS_KEY_ID");
     if (!r2SecretAccessKey) missing.push("R2_S3_SECRET_ACCESS_KEY");
     if (!r2PublicBaseUrl) missing.push("R2_PUBLIC_BASE_URL");
+
+    if (BEACON_API_CALL_ENABLED_IN_CODE) {
+      if (!beaconApiBaseUrl) missing.push("BEACON_API_BASE_URL");
+      if (!beaconAccountId) {
+        missing.push("BEACON_ACCOUNT_ID (or include /api/v1/accounts/:id in BEACON_API_BASE_URL)");
+      }
+      if (!beaconAssistantId) missing.push("BEACON_ASSISTANT_ID");
+      if (!beaconAdminEmail) missing.push("BEACON_ADMIN_EMAIL");
+      if (!beaconAdminPassword) missing.push("BEACON_ADMIN_PASSWORD");
+    }
 
     if (missing.length) {
       throw new Error(
@@ -67,6 +74,7 @@ function loadConfig() {
     flutterAppRepoPath,
     beacon: {
       enabled: beaconSyncEnabled,
+      apiCallEnabled: BEACON_API_CALL_ENABLED_IN_CODE,
       baseUrl: beaconApiBaseUrl,
       accountId: beaconAccountId,
       assistantId: beaconAssistantId,

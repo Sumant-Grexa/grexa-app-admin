@@ -1,6 +1,6 @@
 import { releaseState, runReleasePipeline } from "../services/release/pipeline.js";
 import { syncSupportAgentRagDocsToBeacon } from "../services/release/beaconDocsSync.js";
-import { getReleaseConfig } from "../config/releaseConfig.js";
+import { BEACON_API_CALL_ENABLED_IN_CODE, getReleaseConfig } from "../config/releaseConfig.js";
 
 const RELEASE_PASSWORD = process.env.RELEASE_PASSWORD;
 
@@ -108,14 +108,18 @@ async function testBeaconDocsSync(req, res) {
     return res.status(400).json({ error: "localDocsDir is required" });
   }
 
-  const requiredBeacon = [
-    ["baseUrl", beacon?.baseUrl],
-    ["accountId", beacon?.accountId],
-    ["assistantId", beacon?.assistantId],
-    ["adminEmail", beacon?.adminEmail],
-    ["adminPassword", beacon?.adminPassword],
-  ];
-  const missingBeacon = requiredBeacon.filter(([, value]) => !value).map(([key]) => `beacon.${key}`);
+  const requiredBeacon = BEACON_API_CALL_ENABLED_IN_CODE
+    ? [
+        ["baseUrl", beacon?.baseUrl],
+        ["accountId", beacon?.accountId],
+        ["assistantId", beacon?.assistantId],
+        ["adminEmail", beacon?.adminEmail],
+        ["adminPassword", beacon?.adminPassword],
+      ]
+    : [];
+  const missingBeacon = requiredBeacon
+    .filter(([, value]) => !value)
+    .map(([key]) => `beacon.${key}`);
 
   const requiredR2 = [
     ["bucketName", r2?.bucketName],
@@ -140,6 +144,7 @@ async function testBeaconDocsSync(req, res) {
   try {
     const syncConfig = {
       enabled: true,
+      apiCallEnabled: BEACON_API_CALL_ENABLED_IN_CODE,
       baseUrl: beacon.baseUrl,
       accountId: beacon.accountId,
       assistantId: beacon.assistantId,
@@ -167,6 +172,8 @@ async function testBeaconDocsSync(req, res) {
       version,
       localDocsDir,
       created: result.created,
+      uploaded: result.uploaded,
+      beaconApiSkipped: result.beaconApiSkipped,
       skipped: result.skipped,
       documents: result.documents,
       log,
@@ -213,6 +220,8 @@ async function triggerBeaconDocsSync(req, res) {
       ok: true,
       version: normalizedVersion,
       created: result.created,
+      uploaded: result.uploaded,
+      beaconApiSkipped: result.beaconApiSkipped,
       skipped: result.skipped,
       documents: result.documents,
       log,

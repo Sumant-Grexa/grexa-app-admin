@@ -417,7 +417,11 @@ export async function runReleasePipeline(options) {
     append("Syncing support-agent-rag docs to Beacon...");
     const beaconSyncResult = await syncSupportAgentRagDocsToBeacon(beacon, version, append);
     if (!beaconSyncResult.skipped) {
-      append(`Beacon docs sync complete: created=${beaconSyncResult.created}`);
+      if (beaconSyncResult.beaconApiSkipped) {
+        append(`Beacon API skipped by codebase flag. Uploaded to R2: ${beaconSyncResult.uploaded}`);
+      } else {
+        append(`Beacon docs sync complete: created=${beaconSyncResult.created}`);
+      }
     }
 
     if (!googleChatWebhookUrl) {

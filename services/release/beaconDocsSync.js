@@ -232,7 +232,7 @@ async function createBeaconDocument(config, authHeaders, entry) {
   maybeRotateAuthHeaders(authHeaders, response);
 }
 
-async function syncSingleDocument(config, authHeaders, s3Client, file, appVersion) {
+async function syncSingleDocument(config, authHeaders, s3Client, file, appVersion, shouldCallBeaconApi) {
   const bucketKey = buildBucketKey(appVersion, file.relativePath);
   const fileUrl = buildPublicFileUrl(config.r2PublicBaseUrl, bucketKey);
 
@@ -246,15 +246,21 @@ async function syncSingleDocument(config, authHeaders, s3Client, file, appVersio
     fileUrl,
   };
 
-  await createBeaconDocument(config, authHeaders, entry);
+  if (shouldCallBeaconApi) {
+    await createBeaconDocument(config, authHeaders, entry);
+  }
   return entry;
 }
 
-async function syncBatch(config, authHeaders, s3Client, files, appVersion, append) {
+async function syncBatch(config, authHeaders, s3Client, files, appVersion, append, shouldCallBeaconApi) {
   const synced = await Promise.all(
-    files.map((file) => syncSingleDocument(config, authHeaders, s3Client, file, appVersion))
+    files.map((file) => syncSingleDocument(config, authHeaders, s3Client, file, appVersion, shouldCallBeaconApi))
   );
-  append(`Beacon create batch complete: ${synced.length} file(s)`);
+  if (shouldCallBeaconApi) {
+    append(`Beacon create batch complete: ${synced.length} file(s)`);
+  } else {
+    append(`R2 upload batch complete: ${synced.length} file(s)`);
+  }
   return synced;
 }
 
@@ -278,7 +284,10 @@ export async function syncSupportAgentRagDocsToBeacon(config, appVersion, append
     return { created: 0, skipped: true, documents: [] };
   }
 
-  assertBeaconConfig(config);
+  const shouldCallBeaconApi = config.apiCallEnabled !== false;
+  if (shouldCallBeaconApi) {
+    assertBeaconConfig(config);
+  }
 
   const docsDir = config.localDocsDir;
   if (!docsDir) {
@@ -304,20 +313,35 @@ export async function syncSupportAgentRagDocsToBeacon(config, appVersion, append
     )}/<relative-path>.md`
   );
 
-  append("Signing in to Beacon...");
-  const authHeaders = await signInToBeacon(config);
-  append("Beacon sign-in successful.");
+  let authHeaders = null;
+  if (shouldCallBeaconApi) {
+    append("Signing in to Beacon...");
+    authHeaders = await signInToBeacon(config);
+    append("Beacon sign-in successful.");
+  } else {
+    append("Skipping Beacon API call by codebase flag. Uploading docs to R2 only.");
+  }
 
   const s3Client = createS3Client(config);
   const syncedDocuments = [];
 
   for (const batch of chunkBy(localFiles, BULK_MAX_FILES)) {
-    const result = await syncBatch(config, authHeaders, s3Client, batch, appVersion, append);
+    const result = await syncBatch(
+      config,
+      authHeaders,
+      s3Client,
+      batch,
+      appVersion,
+      append,
+      shouldCallBeaconApi
+    );
     syncedDocuments.push(...result);
   }
 
   return {
-    created: syncedDocuments.length,
+    created: shouldCallBeaconApi ? syncedDocuments.length : 0,
+    uploaded: syncedDocuments.length,
+    beaconApiSkipped: !shouldCallBeaconApi,
     skipped: false,
     documents: syncedDocuments,
   };
