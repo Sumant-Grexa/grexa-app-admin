@@ -295,6 +295,7 @@ export async function runReleasePipeline(options) {
       track,
       userFraction,
       iosReleaseType,
+      syncBeaconDocs = true,
     } = options;
 
     const tagName = `v${version}`;
@@ -414,14 +415,19 @@ export async function runReleasePipeline(options) {
       append
     );
 
-    append("Syncing support-agent-rag docs to Beacon...");
-    const beaconSyncResult = await syncSupportAgentRagDocsToBeacon(beacon, version, append);
-    if (!beaconSyncResult.skipped) {
-      if (beaconSyncResult.beaconApiSkipped) {
-        append(`Beacon API skipped by codebase flag. Uploaded to R2: ${beaconSyncResult.uploaded}`);
-      } else {
-        append(`Beacon docs sync complete: created=${beaconSyncResult.created}`);
+    let beaconSyncResult = { created: 0, uploaded: 0, skipped: true, documents: [] };
+    if (syncBeaconDocs) {
+      append("Syncing support-agent-rag docs to Beacon...");
+      beaconSyncResult = await syncSupportAgentRagDocsToBeacon(beacon, version, append);
+      if (!beaconSyncResult.skipped) {
+        if (beaconSyncResult.beaconApiSkipped) {
+          append(`Beacon API skipped by codebase flag. Uploaded to R2: ${beaconSyncResult.uploaded}`);
+        } else {
+          append(`Beacon docs sync complete: created=${beaconSyncResult.created}`);
+        }
       }
+    } else {
+      append("Skipping Beacon docs sync and bucket upload: disabled in release form.");
     }
 
     if (!googleChatWebhookUrl) {
@@ -453,6 +459,8 @@ export async function runReleasePipeline(options) {
           append("Posted Beacon docs links to the new Google Chat space.");
         })
       );
+    } else if (!syncBeaconDocs) {
+      append("Skipping Beacon docs Google Chat notification: disabled in release form.");
     } else if (!googleChatBeaconDocsWebhookUrl) {
       append("Skipping Beacon docs Google Chat notification: GOOGLE_CHAT_BEACON_DOCS_WEBHOOK_URL is not configured.");
     } else {

@@ -228,13 +228,14 @@ export function initPlayStoreManager() {
     const releasePassword = (document.getElementById("ps-password")?.value || "").trim();
     const version = (document.getElementById("ps-version")?.value || "").trim();
     const releaseNotes = (document.getElementById("ps-notes")?.value || "").trim();
+    const syncBeaconDocs = Boolean(document.getElementById("ps-sync-beacon-docs")?.checked);
 
     if (!version) {
       showError("Version is required");
       return;
     }
 
-    const payload = { releasePassword, version, platforms, releaseNotes };
+    const payload = { releasePassword, version, platforms, releaseNotes, syncBeaconDocs };
 
     /* Android-specific fields */
     if (platforms.includes("android")) {
