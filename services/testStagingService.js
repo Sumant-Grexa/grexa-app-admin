@@ -25,11 +25,15 @@ class PlaneApiError extends Error {
   }
 }
 
-/** @returns {{ baseUrl: string, workspaceSlug: string, apiKey: string }} */
+/** @returns {{ baseUrl: string, workspaceSlug: string, apiKey: string, scopedProjectIds: string[] }} */
 function getPlaneConfig() {
   const baseUrl = String(process.env.PLANE_API_BASE_URL || "https://api.plane.com").replace(/\/$/, "");
   const workspaceSlug = String(process.env.PLANE_WORKSPACE_SLUG || "").trim();
   const apiKey = String(process.env.PLANE_API_KEY || "").trim();
+  const scopedProjectIds = String(process.env.PLANE_TEST_STAGING_PROJECT_IDS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   if (!workspaceSlug) {
     throw new Error("PLANE_WORKSPACE_SLUG is required");
@@ -38,7 +42,7 @@ function getPlaneConfig() {
     throw new Error("PLANE_API_KEY is required");
   }
 
-  return { baseUrl, workspaceSlug, apiKey };
+  return { baseUrl, workspaceSlug, apiKey, scopedProjectIds };
 }
 
 /**
@@ -308,12 +312,12 @@ function getInlineIssueLinks(issue) {
 
 /** @returns {Promise<Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>>} */
 export async function fetchPlaneModules() {
-  const { workspaceSlug } = getPlaneConfig();
+  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
   const projectBase = `/api/v1/workspaces/${workspaceSlug}/projects`;
 
   const projects = await fetchAllPlanePages([`${projectBase}/`, `${projectBase}`]);
 
-  const projectRows = projects
+  let projectRows = projects
     .map((project) => ({
       projectId: String(project.id || ""),
       projectName: String(project.name || ""),
@@ -321,12 +325,28 @@ export async function fetchPlaneModules() {
     }))
     .filter((project) => project.projectId && project.projectName);
 
+  if (scopedProjectIds.length > 0) {
+    const scoped = new Set(scopedProjectIds);
+    projectRows = projectRows.filter((project) => scoped.has(project.projectId));
+  }
+
   const moduleRows = await Promise.all(
     projectRows.map(async (project) => {
-      const modules = await fetchAllPlanePages([
-        `${projectBase}/${project.projectId}/modules/`,
-        `${projectBase}/${project.projectId}/modules`,
-      ]);
+      let modules = [];
+      try {
+        modules = await fetchAllPlanePages([
+          `${projectBase}/${project.projectId}/modules/`,
+          `${projectBase}/${project.projectId}/modules`,
+        ]);
+      } catch (error) {
+        if (error instanceof PlaneApiError && error.status === 403) {
+          console.warn(
+            `[test-staging] Skipping project ${project.projectId} (${project.projectName}) while listing modules: 403 Forbidden`
+          );
+          return [];
+        }
+        throw error;
+      }
 
       return modules
         .map((module) => ({
