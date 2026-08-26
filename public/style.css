@@ -171,6 +171,15 @@ header {
   color: #3730a3;
   background: #eef2ff;
 }
+.btn-test-staging {
+  border-color: #bbf7d0;
+  color: #166534;
+}
+.btn-test-staging:hover {
+  border-color: #86efac;
+  color: #14532d;
+  background: #f0fdf4;
+}
 
 .status-dot {
   width: 7px; height: 7px;

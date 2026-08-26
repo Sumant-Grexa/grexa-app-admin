@@ -44,6 +44,7 @@
         <button id="add-env-btn" class="btn-ghost">+ Add Env</button>
         <button id="sync-dev-envs-btn" class="btn-ghost btn-sync-dev">Sync Dev Envs</button>
         <button id="beacon-doc-sync-open-btn" class="btn-ghost">Beacon Doc Sync</button>
+        <button id="test-staging-open-btn" class="btn-ghost btn-test-staging">Test Staging</button>
         <button id="release-app-btn" class="btn-release-header">&#9652; Release App</button>
         <button id="logout-btn" class="btn-ghost muted">Logout</button>
       </div>
@@ -329,6 +330,50 @@
     </div>
   </div>
 
+  <!-- Test Staging Modal -->
+  <div id="test-staging-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Test Staging <span id="ts-status-badge" class="deploy-badge idle">IDLE</span></span>
+        <button class="modal-close" id="test-staging-close">&times;</button>
+      </div>
+
+      <form id="test-staging-form">
+        <div class="modal-body">
+          <div class="field-group">
+            <label class="field-label" for="ts-env-select">Environment</label>
+            <select id="ts-env-select" class="field-input">
+              <option value="">Select environment</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="ts-module-select">Module</label>
+            <select id="ts-module-select" class="field-input">
+              <option value="">Loading modules...</option>
+            </select>
+            <span class="field-hint">Modules are fetched from Plane API.</span>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="ts-status-select">Status</label>
+            <select id="ts-status-select" class="field-input">
+              <option value="">All statuses</option>
+            </select>
+            <span class="field-hint">Status options are fetched from Plane states API.</span>
+          </div>
+
+          <p id="ts-error" class="error-msg hidden"></p>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" id="test-staging-cancel">Cancel</button>
+          <button type="submit" class="btn-primary" id="ts-start-btn">Start Test Staging</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Log Drawer -->
   <div id="log-drawer" class="log-drawer hidden">
     <div class="drawer-header">
@@ -339,6 +384,7 @@
   </div>
 
   <script type="module" src="js/playStoreManager.js"></script>
+  <script type="module" src="js/testStagingManager.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 

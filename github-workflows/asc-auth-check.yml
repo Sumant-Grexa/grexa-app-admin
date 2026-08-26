@@ -1,0 +1,113 @@
+name: ASC Auth Check
+
+on:
+  push:
+    branches:
+      - fix/ios_release_jwt_issue
+  workflow_dispatch:
+
+jobs:
+  auth-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate App Store Connect bearer token (DER vs P1363)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+        run: |
+          node <<'NODE'
+          const { createSign } = require("node:crypto");
+
+          const required = ["ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_PRIVATE_KEY", "ASC_APP_ID"];
+          for (const key of required) {
+            if (!process.env[key]) {
+              console.error(`Missing required secret: ${key}`);
+              process.exit(1);
+            }
+          }
+
+          function generateToken(mode) {
+            const now = Math.floor(Date.now() / 1000);
+            const header = Buffer.from(
+              JSON.stringify({ alg: "ES256", kid: process.env.ASC_KEY_ID, typ: "JWT" })
+            ).toString("base64url");
+            const payload = Buffer.from(
+              JSON.stringify({
+                iss: process.env.ASC_ISSUER_ID,
+                iat: now,
+                exp: now + 1200,
+                aud: "appstoreconnect-v1",
+              })
+            ).toString("base64url");
+            const data = `${header}.${payload}`;
+
+            const privateKey = process.env.ASC_PRIVATE_KEY.replace(/\\n/g, "\n");
+            const sign = createSign("SHA256");
+            sign.update(data);
+
+            const signature =
+              mode === "p1363"
+                ? sign.sign({ key: privateKey, dsaEncoding: "ieee-p1363" })
+                : sign.sign(privateKey);
+
+            return `${data}.${signature.toString("base64url")}`;
+          }
+
+          async function callBuilds(mode) {
+            const url = new URL("https://api.appstoreconnect.apple.com/v1/builds");
+            url.searchParams.set("filter[app]", process.env.ASC_APP_ID);
+            url.searchParams.set("filter[processingState]", "VALID");
+            url.searchParams.set("sort", "-uploadedDate");
+            url.searchParams.set("limit", "1");
+
+            const res = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${generateToken(mode)}`,
+                "Content-Type": "application/json",
+              },
+            });
+
+            const body = await res.text();
+            return { status: res.status, body };
+          }
+
+          (async () => {
+            const der = await callBuilds("der");
+            const p1363 = await callBuilds("p1363");
+
+            console.log(`DER status: ${der.status}`);
+            console.log(`P1363 status: ${p1363.status}`);
+            console.log(`DER body (first 400 chars): ${der.body.slice(0, 400)}`);
+            console.log(`P1363 body (first 400 chars): ${p1363.body.slice(0, 400)}`);
+
+            if (p1363.status === 401) {
+              console.error("P1363 still returns 401. This points to secret/key pairing or key permission issues.");
+              process.exit(1);
+            }
+
+            if (der.status === 401 && (p1363.status === 200 || p1363.status === 403)) {
+              console.log("JWT encoding issue confirmed: DER fails, P1363 succeeds.");
+              process.exit(0);
+            }
+
+            if (p1363.status === 200 || p1363.status === 403) {
+              console.log("JWT auth is valid with P1363.");
+              process.exit(0);
+            }
+
+            console.error("Unexpected result. Check response body above.");
+            process.exit(1);
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          NODE

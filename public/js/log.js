@@ -6,11 +6,13 @@ const openTabs = {};
 let activeTabId = null;
 const pollers = {};
 const RELEASE_TAB_ID = "__app_release__";
+const TEST_STAGING_TAB_ID = "__test_staging__";
 
 function getDrawer()    { return document.getElementById("log-drawer"); }
 function getTabsEl()    { return document.getElementById("drawer-tabs"); }
 function getOutputEl()  { return document.getElementById("drawer-log-output"); }
 function isReleaseTab(tabId) { return tabId === RELEASE_TAB_ID; }
+function isTestStagingTab(tabId) { return tabId === TEST_STAGING_TAB_ID; }
 
 function renderTabs() {
   const tabsEl = getTabsEl();
@@ -40,6 +42,8 @@ function renderLog(envId) {
     if (line.includes("✓") || line.startsWith("Tag created:") || line.startsWith("GitHub release created:") || line.startsWith("Posted release notes"))
       return `<span class="log-line-ok">${esc(line)}</span>`;
     if (line.startsWith("Error:"))
+      return `<span class="log-line-err">${esc(line)}</span>`;
+    if (line.startsWith("Merge conflict"))
       return `<span class="log-line-err">${esc(line)}</span>`;
     if (line.includes("✗") || line.startsWith("Pipeline failed:"))
       return `<span class="log-line-err">${esc(line)}</span>`;
@@ -112,7 +116,11 @@ export async function openLog(envId, label) {
 
 export async function refreshLog(envId) {
   try {
-    const path = isReleaseTab(envId) ? "/api/play-store/log" : `/api/deploy-log/${envId}`;
+    const path = isReleaseTab(envId)
+      ? "/api/play-store/log"
+      : isTestStagingTab(envId)
+        ? "/api/test-staging/log"
+        : `/api/deploy-log/${envId}`;
     const data = await api("GET", path);
     if (openTabs[envId]) openTabs[envId].log = data.log ?? [];
     if (activeTabId === envId) renderLog(envId);
@@ -125,12 +133,18 @@ function startPollingForTab(envId, onDone) {
   if (pollers[envId]) return;
   pollers[envId] = setInterval(async () => {
     try {
-      const path = isReleaseTab(envId) ? "/api/play-store/log" : `/api/deploy-log/${envId}`;
+      const path = isReleaseTab(envId)
+        ? "/api/play-store/log"
+        : isTestStagingTab(envId)
+          ? "/api/test-staging/log"
+          : `/api/deploy-log/${envId}`;
       const data = await api("GET", path);
       if (openTabs[envId]) openTabs[envId].log = data.log ?? [];
       if (activeTabId === envId) renderLog(envId);
       const done = isReleaseTab(envId)
         ? data.status === "success" || data.status === "error" || data.status === "idle"
+        : isTestStagingTab(envId)
+          ? data.status === "success" || data.status === "error" || data.status === "idle"
         : data.status !== "deploying";
       if (done) {
         clearInterval(pollers[envId]);
@@ -155,4 +169,12 @@ export async function openReleaseLog(label = "App Release") {
 
 export function startReleaseLogPolling(onDone) {
   startPollingForTab(RELEASE_TAB_ID, onDone);
+}
+
+export async function openTestStagingLog(label = "Test Staging") {
+  return openLog(TEST_STAGING_TAB_ID, label);
+}
+
+export function startTestStagingLogPolling(onDone) {
+  startPollingForTab(TEST_STAGING_TAB_ID, onDone);
 }
