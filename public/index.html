@@ -348,7 +348,10 @@
           </div>
 
           <div class="field-group">
-            <label class="field-label" for="ts-module-trigger">Module</label>
+            <div class="field-inline-row">
+              <label class="field-label" for="ts-module-trigger">Module</label>
+              <button type="button" class="btn-ghost btn-inline-ghost" id="ts-module-change-btn">Change</button>
+            </div>
             <div class="branch-selector-wrap" id="ts-module-wrap" data-selected="">
               <button type="button" class="selector-trigger" id="ts-module-trigger">
                 <span class="selector-display" id="ts-module-display">Loading modules...</span>
@@ -363,7 +366,7 @@
                 <div class="dropdown-options" id="ts-module-options"></div>
               </div>
             </div>
-            <span class="field-hint">Modules are fetched from Plane API.</span>
+            <span class="field-hint" id="ts-module-hint">Using cached module. Click Change to fetch/search modules.</span>
           </div>
 
           <div class="field-group">

@@ -1,8 +1,13 @@
 import simpleGit from "simple-git";
 import { getEnvs } from "../config/environments.js";
+import {
+  getTestStagingCache,
+  setTestStagingModuleCache,
+  setTestStagingSelectedModule,
+} from "../config/testStagingCache.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
-const DEFAULT_MODULE_CACHE_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_MODULE_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 export const testStagingState = {
   status: "idle", // 'idle' | 'running' | 'success' | 'error'
@@ -12,10 +17,12 @@ export const testStagingState = {
   meta: null,
 };
 
+const persistedCache = getTestStagingCache();
 const moduleListCache = {
-  fetchedAt: 0,
-  modules: /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */ ([]),
+  fetchedAt: Number(persistedCache.moduleCache?.fetchedAt || 0),
+  modules: Array.isArray(persistedCache.moduleCache?.modules) ? persistedCache.moduleCache.modules : [],
 };
+let selectedModuleCache = persistedCache.selectedModule || null;
 
 class PlaneApiError extends Error {
   /**
@@ -56,6 +63,58 @@ function getModuleCacheTtlMs() {
   const raw = Number.parseInt(String(process.env.PLANE_MODULE_CACHE_TTL_MS || ""), 10);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return DEFAULT_MODULE_CACHE_TTL_MS;
+}
+
+/**
+ * @param {unknown} module
+ * @returns {{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string } | null}
+ */
+function normalizeModuleRecord(module) {
+  if (!module || typeof module !== "object") return null;
+
+  const projectId = String(module.projectId || "").trim();
+  const moduleId = String(module.moduleId || "").trim();
+  const projectName = String(module.projectName || "").trim();
+  const moduleName = String(module.moduleName || "").trim();
+  const projectIdentifier = String(module.projectIdentifier || "").trim();
+
+  if (!projectId || !moduleId || !projectName || !moduleName) return null;
+
+  return {
+    projectId,
+    moduleId,
+    projectName,
+    moduleName,
+    projectIdentifier,
+  };
+}
+
+export function getSelectedTestStagingModule() {
+  return selectedModuleCache ? { ...selectedModuleCache } : null;
+}
+
+/**
+ * @param {unknown} module
+ */
+export function saveSelectedTestStagingModule(module) {
+  const normalized = normalizeModuleRecord(module);
+  if (!normalized) {
+    throw new Error("Invalid module selection");
+  }
+
+  selectedModuleCache = normalized;
+  setTestStagingSelectedModule(normalized);
+  return { ...normalized };
+}
+
+export function getTestStagingPreferences() {
+  return {
+    selectedModule: getSelectedTestStagingModule(),
+    moduleCache: {
+      fetchedAt: moduleListCache.fetchedAt,
+      count: moduleListCache.modules.length,
+    },
+  };
 }
 
 /**
@@ -412,14 +471,14 @@ export async function fetchPlaneModules(forceRefresh = false) {
 
     moduleRows.push(
       ...modules
-        .map((module) => ({
+        .map((module) => normalizeModuleRecord({
           projectId: project.projectId,
           projectName: project.projectName,
           projectIdentifier: project.projectIdentifier,
           moduleId: String(module.id || ""),
           moduleName: String(module.name || module.title || ""),
         }))
-        .filter((module) => module.moduleId && module.moduleName)
+        .filter(Boolean)
     );
   }
 
@@ -428,6 +487,7 @@ export async function fetchPlaneModules(forceRefresh = false) {
   if (sorted.length > 0) {
     moduleListCache.fetchedAt = Date.now();
     moduleListCache.modules = sorted;
+    setTestStagingModuleCache(sorted);
   }
 
   return sorted;

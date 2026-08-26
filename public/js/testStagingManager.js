@@ -1,7 +1,9 @@
 import { api } from "./api.js";
 import {
   getTestStagingModules,
+  getTestStagingPreferences,
   getTestStagingStates,
+  saveTestStagingSelectedModule,
   startTestStaging,
   getTestStagingLog,
 } from "./testStagingApi.js";
@@ -9,13 +11,14 @@ import { openTestStagingLog, startTestStagingLogPolling } from "./log.js";
 
 let logPollingActive = false;
 
-/** @type {Array<{ moduleId: string, projectId: string, projectName: string, moduleName: string }>} */
+/** @type {Array<{ moduleId: string, projectId: string, projectName: string, moduleName: string, projectIdentifier?: string }>} */
 let moduleOptions = [];
-/** @type {{ moduleId: string, projectId: string, projectName: string, moduleName: string } | null} */
+/** @type {{ moduleId: string, projectId: string, projectName: string, moduleName: string, projectIdentifier?: string } | null} */
 let selectedModule = null;
 /** @type {Array<{ id: string, name: string }>} */
 let statusOptions = [];
 const selectedStatusIds = new Set();
+let moduleSelectionEnabled = false;
 
 function showTsError(message) {
   const el = document.getElementById("ts-error");
@@ -75,12 +78,32 @@ function closeAllDropdowns() {
   document.getElementById("ts-status-dropdown")?.classList.add("hidden");
 }
 
+function setModuleHint(text) {
+  const hint = document.getElementById("ts-module-hint");
+  if (!hint) return;
+  hint.textContent = text;
+}
+
+function setModuleSelectionEnabled(enabled) {
+  moduleSelectionEnabled = enabled;
+  const trigger = document.getElementById("ts-module-trigger");
+  if (!trigger) return;
+
+  if (!enabled) {
+    trigger.disabled = true;
+    return;
+  }
+
+  trigger.disabled = moduleOptions.length === 0;
+}
+
 function updateModuleDisplay() {
   const display = document.getElementById("ts-module-display");
   if (!display) return;
 
   if (!selectedModule) {
-    display.textContent = moduleOptions.length > 0 ? "Select module" : "No modules found";
+    if (moduleOptions.length > 0) display.textContent = "Select module";
+    else display.textContent = "No cached module selected";
     return;
   }
 
@@ -187,16 +210,22 @@ async function loadEnvOptions() {
   }
 }
 
-async function loadModules() {
-  const trigger = document.getElementById("ts-module-trigger");
-  const search = document.getElementById("ts-module-search");
-
-  if (trigger) trigger.disabled = true;
-
-  moduleOptions = [];
-  selectedModule = null;
+async function loadPreferences() {
+  const prefs = await getTestStagingPreferences();
+  selectedModule = prefs?.selectedModule || null;
   updateModuleDisplay();
-  renderModuleOptions();
+
+  if (selectedModule) {
+    setModuleSelectionEnabled(false);
+    setModuleHint("Using cached selected module. Click Change to fetch/search modules.");
+  } else {
+    setModuleSelectionEnabled(true);
+    setModuleHint("No module selected. Click Change to fetch/search modules.");
+  }
+}
+
+async function loadModules() {
+  const search = document.getElementById("ts-module-search");
 
   const { modules } = await getTestStagingModules();
   moduleOptions = modules || [];
@@ -205,7 +234,18 @@ async function loadModules() {
   updateModuleDisplay();
   renderModuleOptions();
 
-  if (trigger) trigger.disabled = moduleOptions.length === 0;
+  if (moduleOptions.length === 0) {
+    setModuleHint("No modules returned. Try again later or verify Plane permissions.");
+  }
+
+  if (moduleSelectionEnabled) {
+    setModuleSelectionEnabled(true);
+  }
+}
+
+async function ensureModuleOptionsLoaded() {
+  if (moduleOptions.length > 0) return;
+  await loadModules();
 }
 
 async function loadStates(projectId) {
@@ -278,6 +318,7 @@ export function initTestStagingManager() {
   const moduleDropdown = document.getElementById("ts-module-dropdown");
   const moduleSearch = document.getElementById("ts-module-search");
   const moduleOptionsEl = document.getElementById("ts-module-options");
+  const moduleChangeBtn = document.getElementById("ts-module-change-btn");
 
   const statusTrigger = document.getElementById("ts-status-trigger");
   const statusDropdown = document.getElementById("ts-status-dropdown");
@@ -288,11 +329,27 @@ export function initTestStagingManager() {
 
   moduleTrigger?.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (moduleTrigger.disabled) return;
+    if (!moduleSelectionEnabled || moduleTrigger.disabled) return;
     statusDropdown?.classList.add("hidden");
     moduleDropdown?.classList.toggle("hidden");
     if (!moduleDropdown?.classList.contains("hidden")) {
       moduleSearch?.focus();
+    }
+  });
+
+  moduleChangeBtn?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    hideTsError();
+
+    try {
+      await ensureModuleOptionsLoaded();
+      setModuleSelectionEnabled(true);
+      setModuleHint("Select a module. On selection it will be cached for future runs.");
+      statusDropdown?.classList.add("hidden");
+      moduleDropdown?.classList.remove("hidden");
+      moduleSearch?.focus();
+    } catch (error) {
+      showTsError(error instanceof Error ? error.message : "Failed to load modules");
     }
   });
 
@@ -332,10 +389,22 @@ export function initTestStagingManager() {
     const moduleId = option.dataset.moduleId;
     if (!moduleId) return;
 
-    selectedModule = moduleOptions.find((module) => module.moduleId === moduleId) || null;
+    const picked = moduleOptions.find((module) => module.moduleId === moduleId) || null;
+    if (!picked) return;
+
+    try {
+      const response = await saveTestStagingSelectedModule(picked);
+      selectedModule = response?.selectedModule || picked;
+    } catch (error) {
+      showTsError(error instanceof Error ? error.message : "Failed to persist selected module");
+      return;
+    }
+
     updateModuleDisplay();
     renderModuleOptions(moduleSearch?.value || "");
     moduleDropdown?.classList.add("hidden");
+    setModuleSelectionEnabled(false);
+    setModuleHint("Using cached selected module. Click Change to switch.");
 
     try {
       hideTsError();
@@ -369,12 +438,15 @@ export function initTestStagingManager() {
 
     try {
       await loadEnvOptions();
-      if (moduleOptions.length === 0) {
-        await loadModules();
-      } else {
-        updateModuleDisplay();
-        renderModuleOptions(moduleSearch?.value || "");
+      await loadPreferences();
+
+      if (!selectedModule) {
+        await ensureModuleOptionsLoaded();
+        setModuleSelectionEnabled(true);
       }
+
+      updateModuleDisplay();
+      renderModuleOptions(moduleSearch?.value || "");
       await loadStates(selectedModule?.projectId || "");
       await refreshExistingRunState();
     } catch (error) {
@@ -408,7 +480,7 @@ export function initTestStagingManager() {
     const projectId = String(selectedModule?.projectId || "").trim();
 
     if (!envId) return showTsError("Environment is required");
-    if (!moduleId || !projectId) return showTsError("Module is required");
+    if (!moduleId || !projectId) return showTsError("Module is required. Click Change and select one module.");
 
     setStatusBadge("running");
     setSubmitRunning(true);

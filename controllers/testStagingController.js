@@ -2,6 +2,9 @@ import { getEnvs } from "../config/environments.js";
 import {
   fetchPlaneModules,
   fetchPlaneStates,
+  getSelectedTestStagingModule,
+  getTestStagingPreferences,
+  saveSelectedTestStagingModule,
   startTestStagingRun,
   testStagingState,
 } from "../services/testStagingService.js";
@@ -19,6 +22,34 @@ export async function getTestStagingModules(_req, res) {
     res.json({ modules });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/**
+ * GET /api/test-staging/preferences
+ * @param {import("express").Request} _req
+ * @param {import("express").Response} res
+ */
+export function getTestStagingPrefs(_req, res) {
+  try {
+    res.json(getTestStagingPreferences());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/**
+ * POST /api/test-staging/selected-module
+ * Body: { projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier?: string }
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export function setTestStagingSelectedModule(req, res) {
+  try {
+    const selectedModule = saveSelectedTestStagingModule(req.body || {});
+    res.json({ selectedModule });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -49,14 +80,22 @@ export async function getTestStagingStates(req, res) {
  */
 export function startTestStaging(req, res) {
   const envId = String(req.body?.envId || "").trim();
-  const projectId = String(req.body?.projectId || "").trim();
-  const moduleId = String(req.body?.moduleId || "").trim();
+  let projectId = String(req.body?.projectId || "").trim();
+  let moduleId = String(req.body?.moduleId || "").trim();
   const statusIdsRaw = Array.isArray(req.body?.statusIds)
     ? req.body.statusIds
     : req.body?.statusId != null
       ? [req.body.statusId]
       : [];
   const statusIds = [...new Set(statusIdsRaw.map((value) => String(value || "").trim()).filter(Boolean))];
+
+  if (!projectId || !moduleId) {
+    const selectedModule = getSelectedTestStagingModule();
+    if (selectedModule) {
+      projectId = selectedModule.projectId;
+      moduleId = selectedModule.moduleId;
+    }
+  }
 
   if (!envId) return res.status(400).json({ error: "envId is required" });
   if (!projectId) return res.status(400).json({ error: "projectId is required" });

@@ -787,6 +787,18 @@ main {
   color: var(--muted);
 }
 
+.field-inline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.btn-inline-ghost {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
 .field-input {
   background: var(--bg3);
   border: 1px solid var(--border);
