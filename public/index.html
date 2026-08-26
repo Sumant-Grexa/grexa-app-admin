@@ -348,19 +348,41 @@
           </div>
 
           <div class="field-group">
-            <label class="field-label" for="ts-module-select">Module</label>
-            <select id="ts-module-select" class="field-input">
-              <option value="">Loading modules...</option>
-            </select>
+            <label class="field-label" for="ts-module-trigger">Module</label>
+            <div class="branch-selector-wrap" id="ts-module-wrap" data-selected="">
+              <button type="button" class="selector-trigger" id="ts-module-trigger">
+                <span class="selector-display" id="ts-module-display">Loading modules...</span>
+                <svg class="selector-caret" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <div class="branch-dropdown hidden" id="ts-module-dropdown">
+                <div class="dropdown-search-wrap">
+                  <input type="text" class="dropdown-search" id="ts-module-search" placeholder="Search modules..." autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="dropdown-options" id="ts-module-options"></div>
+              </div>
+            </div>
             <span class="field-hint">Modules are fetched from Plane API.</span>
           </div>
 
           <div class="field-group">
-            <label class="field-label" for="ts-status-select">Status</label>
-            <select id="ts-status-select" class="field-input">
-              <option value="">All statuses</option>
-            </select>
-            <span class="field-hint">Status options are fetched from Plane states API.</span>
+            <label class="field-label" for="ts-status-trigger">Status</label>
+            <div class="branch-selector-wrap" id="ts-status-wrap">
+              <button type="button" class="selector-trigger" id="ts-status-trigger">
+                <span class="selector-display" id="ts-status-display">All statuses</span>
+                <svg class="selector-caret" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <div class="branch-dropdown hidden" id="ts-status-dropdown">
+                <div class="dropdown-search-wrap">
+                  <input type="text" class="dropdown-search" id="ts-status-search" placeholder="Search statuses..." autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="dropdown-options" id="ts-status-options"></div>
+              </div>
+            </div>
+            <span class="field-hint">Status options are fetched from Plane states API. You can select multiple statuses.</span>
           </div>
 
           <p id="ts-error" class="error-msg hidden"></p>

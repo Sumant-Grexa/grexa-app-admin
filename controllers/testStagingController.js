@@ -41,7 +41,7 @@ export async function getTestStagingStates(req, res) {
 
 /**
  * POST /api/test-staging/start
- * Body: { envId: string, projectId: string, moduleId: string, statusId?: string }
+ * Body: { envId: string, projectId: string, moduleId: string, statusId?: string, statusIds?: string[] }
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  */
@@ -49,8 +49,12 @@ export function startTestStaging(req, res) {
   const envId = String(req.body?.envId || "").trim();
   const projectId = String(req.body?.projectId || "").trim();
   const moduleId = String(req.body?.moduleId || "").trim();
-  const statusIdRaw = req.body?.statusId;
-  const statusId = statusIdRaw == null ? null : String(statusIdRaw).trim() || null;
+  const statusIdsRaw = Array.isArray(req.body?.statusIds)
+    ? req.body.statusIds
+    : req.body?.statusId != null
+      ? [req.body.statusId]
+      : [];
+  const statusIds = [...new Set(statusIdsRaw.map((value) => String(value || "").trim()).filter(Boolean))];
 
   if (!envId) return res.status(400).json({ error: "envId is required" });
   if (!projectId) return res.status(400).json({ error: "projectId is required" });
@@ -60,7 +64,7 @@ export function startTestStaging(req, res) {
   if (!env) return res.status(404).json({ error: `Unknown environment: ${envId}` });
 
   try {
-    startTestStagingRun({ envId, projectId, moduleId, statusId });
+    startTestStagingRun({ envId, projectId, moduleId, statusIds });
     return res.json({ ok: true, message: "Test staging started" });
   } catch (error) {
     if (error instanceof Error && error.code === "RUNNING") {

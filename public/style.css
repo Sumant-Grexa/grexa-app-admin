@@ -361,6 +361,7 @@ main {
 .branch-selector-wrap {
   position: relative;
   flex: 1;
+  width: 100%;
   min-width: 0;
 }
 
@@ -459,6 +460,13 @@ main {
 .branch-option:hover      { background: var(--bg3); }
 .branch-option.selected   { color: var(--accent); background: rgba(74,79,238,.06); }
 .branch-option.is-current { font-weight: 500; }
+.branch-option.disabled {
+  color: var(--border2);
+  cursor: default;
+}
+.branch-option.disabled:hover {
+  background: transparent;
+}
 
 .btn-fetch {
   background: var(--bg3);

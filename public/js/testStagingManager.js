@@ -9,6 +9,14 @@ import { openTestStagingLog, startTestStagingLogPolling } from "./log.js";
 
 let logPollingActive = false;
 
+/** @type {Array<{ moduleId: string, projectId: string, projectName: string, moduleName: string }>} */
+let moduleOptions = [];
+/** @type {{ moduleId: string, projectId: string, projectName: string, moduleName: string } | null} */
+let selectedModule = null;
+/** @type {Array<{ id: string, name: string }>} */
+let statusOptions = [];
+const selectedStatusIds = new Set();
+
 function showTsError(message) {
   const el = document.getElementById("ts-error");
   if (!el) return;
@@ -62,6 +70,106 @@ function setSubmitRunning(running) {
   btn.textContent = "Start Test Staging";
 }
 
+function closeAllDropdowns() {
+  document.getElementById("ts-module-dropdown")?.classList.add("hidden");
+  document.getElementById("ts-status-dropdown")?.classList.add("hidden");
+}
+
+function updateModuleDisplay() {
+  const display = document.getElementById("ts-module-display");
+  if (!display) return;
+
+  if (!selectedModule) {
+    display.textContent = moduleOptions.length > 0 ? "Select module" : "No modules found";
+    return;
+  }
+
+  display.textContent = `${selectedModule.projectName} / ${selectedModule.moduleName}`;
+}
+
+function updateStatusDisplay() {
+  const display = document.getElementById("ts-status-display");
+  if (!display) return;
+
+  if (selectedStatusIds.size === 0) {
+    display.textContent = "All statuses";
+    return;
+  }
+
+  const selectedNames = statusOptions
+    .filter((status) => selectedStatusIds.has(status.id))
+    .map((status) => status.name);
+
+  if (selectedNames.length <= 2) {
+    display.textContent = selectedNames.join(", ");
+    return;
+  }
+
+  display.textContent = `${selectedNames.length} statuses selected`;
+}
+
+function renderModuleOptions(query = "") {
+  const optionsEl = document.getElementById("ts-module-options");
+  if (!optionsEl) return;
+
+  const term = query.trim().toLowerCase();
+  const filtered = moduleOptions.filter((module) => {
+    const searchable = `${module.projectName} ${module.moduleName}`.toLowerCase();
+    return searchable.includes(term);
+  });
+
+  optionsEl.innerHTML = "";
+
+  if (filtered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "branch-option disabled";
+    empty.textContent = "No modules found";
+    optionsEl.appendChild(empty);
+    return;
+  }
+
+  for (const module of filtered) {
+    const option = document.createElement("div");
+    option.className = `branch-option${selectedModule?.moduleId === module.moduleId ? " selected" : ""}`;
+    option.dataset.moduleId = module.moduleId;
+    option.textContent = `${module.projectName} / ${module.moduleName}`;
+    optionsEl.appendChild(option);
+  }
+}
+
+function renderStatusOptions(query = "") {
+  const optionsEl = document.getElementById("ts-status-options");
+  if (!optionsEl) return;
+
+  const term = query.trim().toLowerCase();
+  const filtered = statusOptions.filter((status) => status.name.toLowerCase().includes(term));
+
+  optionsEl.innerHTML = "";
+
+  const allOption = document.createElement("div");
+  allOption.className = `branch-option${selectedStatusIds.size === 0 ? " selected" : ""}`;
+  allOption.dataset.clearAll = "1";
+  allOption.textContent = "All statuses";
+  optionsEl.appendChild(allOption);
+
+  if (filtered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "branch-option disabled";
+    empty.textContent = "No statuses found";
+    optionsEl.appendChild(empty);
+    return;
+  }
+
+  for (const status of filtered) {
+    const selected = selectedStatusIds.has(status.id);
+    const option = document.createElement("div");
+    option.className = `branch-option${selected ? " selected" : ""}`;
+    option.dataset.statusId = status.id;
+    option.textContent = `${selected ? "✓ " : ""}${status.name}`;
+    optionsEl.appendChild(option);
+  }
+}
+
 async function loadEnvOptions() {
   const envSelect = document.getElementById("ts-env-select");
   if (!envSelect) return;
@@ -80,44 +188,47 @@ async function loadEnvOptions() {
 }
 
 async function loadModules() {
-  const moduleSelect = document.getElementById("ts-module-select");
-  if (!moduleSelect) return;
+  const trigger = document.getElementById("ts-module-trigger");
+  const search = document.getElementById("ts-module-search");
 
-  moduleSelect.innerHTML = '<option value="">Loading modules...</option>';
+  if (trigger) trigger.disabled = true;
+
+  moduleOptions = [];
+  selectedModule = null;
+  updateModuleDisplay();
+  renderModuleOptions();
 
   const { modules } = await getTestStagingModules();
+  moduleOptions = modules || [];
 
-  moduleSelect.innerHTML = '<option value="">Select module</option>';
+  if (search) search.value = "";
+  updateModuleDisplay();
+  renderModuleOptions();
 
-  for (const module of modules) {
-    const option = document.createElement("option");
-    option.value = module.moduleId;
-    option.dataset.projectId = module.projectId;
-    option.textContent = `${module.projectName} / ${module.moduleName}`;
-    moduleSelect.appendChild(option);
-  }
-
-  if (modules.length === 0) {
-    moduleSelect.innerHTML = '<option value="">No modules found</option>';
-  }
+  if (trigger) trigger.disabled = moduleOptions.length === 0;
 }
 
 async function loadStates(projectId) {
-  const statusSelect = document.getElementById("ts-status-select");
-  if (!statusSelect) return;
+  const trigger = document.getElementById("ts-status-trigger");
+  const search = document.getElementById("ts-status-search");
 
-  statusSelect.innerHTML = '<option value="">All statuses</option>';
+  selectedStatusIds.clear();
+  statusOptions = [];
+  updateStatusDisplay();
+  renderStatusOptions();
+
+  if (trigger) trigger.disabled = true;
 
   if (!projectId) return;
 
   const { states } = await getTestStagingStates(projectId);
+  statusOptions = (states || []).map((state) => ({ id: state.id, name: state.name }));
 
-  for (const state of states) {
-    const option = document.createElement("option");
-    option.value = state.id;
-    option.textContent = state.name;
-    statusSelect.appendChild(option);
-  }
+  if (search) search.value = "";
+  updateStatusDisplay();
+  renderStatusOptions();
+
+  if (trigger) trigger.disabled = statusOptions.length === 0;
 }
 
 function startLogPolling() {
@@ -162,7 +273,95 @@ async function refreshExistingRunState() {
 export function initTestStagingManager() {
   const modal = document.getElementById("test-staging-modal");
   const form = document.getElementById("test-staging-form");
-  const moduleSelect = document.getElementById("ts-module-select");
+
+  const moduleTrigger = document.getElementById("ts-module-trigger");
+  const moduleDropdown = document.getElementById("ts-module-dropdown");
+  const moduleSearch = document.getElementById("ts-module-search");
+  const moduleOptionsEl = document.getElementById("ts-module-options");
+
+  const statusTrigger = document.getElementById("ts-status-trigger");
+  const statusDropdown = document.getElementById("ts-status-dropdown");
+  const statusSearch = document.getElementById("ts-status-search");
+  const statusOptionsEl = document.getElementById("ts-status-options");
+
+  document.addEventListener("click", () => closeAllDropdowns());
+
+  moduleTrigger?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (moduleTrigger.disabled) return;
+    statusDropdown?.classList.add("hidden");
+    moduleDropdown?.classList.toggle("hidden");
+    if (!moduleDropdown?.classList.contains("hidden")) {
+      moduleSearch?.focus();
+    }
+  });
+
+  statusTrigger?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (statusTrigger.disabled) return;
+    moduleDropdown?.classList.add("hidden");
+    statusDropdown?.classList.toggle("hidden");
+    if (!statusDropdown?.classList.contains("hidden")) {
+      statusSearch?.focus();
+    }
+  });
+
+  moduleDropdown?.addEventListener("click", (event) => event.stopPropagation());
+  statusDropdown?.addEventListener("click", (event) => event.stopPropagation());
+
+  moduleSearch?.addEventListener("input", () => {
+    renderModuleOptions(moduleSearch.value);
+  });
+
+  statusSearch?.addEventListener("input", () => {
+    renderStatusOptions(statusSearch.value);
+  });
+
+  moduleSearch?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") moduleDropdown?.classList.add("hidden");
+  });
+
+  statusSearch?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") statusDropdown?.classList.add("hidden");
+  });
+
+  moduleOptionsEl?.addEventListener("click", async (event) => {
+    const option = event.target.closest(".branch-option");
+    if (!option || option.classList.contains("disabled")) return;
+
+    const moduleId = option.dataset.moduleId;
+    if (!moduleId) return;
+
+    selectedModule = moduleOptions.find((module) => module.moduleId === moduleId) || null;
+    updateModuleDisplay();
+    renderModuleOptions(moduleSearch?.value || "");
+    moduleDropdown?.classList.add("hidden");
+
+    try {
+      hideTsError();
+      await loadStates(selectedModule?.projectId || "");
+    } catch (error) {
+      showTsError(error instanceof Error ? error.message : "Failed to load statuses from Plane");
+    }
+  });
+
+  statusOptionsEl?.addEventListener("click", (event) => {
+    const option = event.target.closest(".branch-option");
+    if (!option || option.classList.contains("disabled")) return;
+
+    if (option.dataset.clearAll === "1") {
+      selectedStatusIds.clear();
+    } else {
+      const statusId = option.dataset.statusId;
+      if (!statusId) return;
+
+      if (selectedStatusIds.has(statusId)) selectedStatusIds.delete(statusId);
+      else selectedStatusIds.add(statusId);
+    }
+
+    updateStatusDisplay();
+    renderStatusOptions(statusSearch?.value || "");
+  });
 
   document.getElementById("test-staging-open-btn")?.addEventListener("click", async () => {
     hideTsError();
@@ -171,34 +370,27 @@ export function initTestStagingManager() {
     try {
       await loadEnvOptions();
       await loadModules();
+      await loadStates("");
       await refreshExistingRunState();
-      const projectId = moduleSelect?.selectedOptions?.[0]?.dataset?.projectId || "";
-      await loadStates(projectId);
     } catch (error) {
       showTsError(error instanceof Error ? error.message : "Failed to load Test Staging options");
     }
   });
 
   document.getElementById("test-staging-close")?.addEventListener("click", () => {
+    closeAllDropdowns();
     modal?.classList.add("hidden");
   });
 
   document.getElementById("test-staging-cancel")?.addEventListener("click", () => {
+    closeAllDropdowns();
     modal?.classList.add("hidden");
   });
 
-  modal?.addEventListener("click", (e) => {
-    if (e.target === modal) modal.classList.add("hidden");
-  });
-
-  moduleSelect?.addEventListener("change", async () => {
-    hideTsError();
-
-    const projectId = moduleSelect.selectedOptions?.[0]?.dataset?.projectId || "";
-    try {
-      await loadStates(projectId);
-    } catch (error) {
-      showTsError(error instanceof Error ? error.message : "Failed to load statuses from Plane");
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      closeAllDropdowns();
+      modal.classList.add("hidden");
     }
   });
 
@@ -207,19 +399,22 @@ export function initTestStagingManager() {
     hideTsError();
 
     const envId = String(document.getElementById("ts-env-select")?.value || "").trim();
-    const moduleId = String(document.getElementById("ts-module-select")?.value || "").trim();
-    const statusId = String(document.getElementById("ts-status-select")?.value || "").trim();
-    const projectId = moduleSelect?.selectedOptions?.[0]?.dataset?.projectId || "";
+    const moduleId = String(selectedModule?.moduleId || "").trim();
+    const projectId = String(selectedModule?.projectId || "").trim();
 
     if (!envId) return showTsError("Environment is required");
-    if (!moduleId) return showTsError("Module is required");
-    if (!projectId) return showTsError("Selected module is missing project mapping");
+    if (!moduleId || !projectId) return showTsError("Module is required");
 
     setStatusBadge("running");
     setSubmitRunning(true);
 
     try {
-      await startTestStaging({ envId, projectId, moduleId, statusId: statusId || undefined });
+      await startTestStaging({
+        envId,
+        projectId,
+        moduleId,
+        statusIds: Array.from(selectedStatusIds),
+      });
       startLogPolling();
     } catch (error) {
       showTsError(error instanceof Error ? error.message : "Failed to start test staging");

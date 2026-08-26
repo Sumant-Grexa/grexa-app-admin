@@ -114,7 +114,8 @@ async function requestPlaneWithFallback(paths, options = {}) {
   for (const path of paths) {
     try {
       const url = buildPlaneUrl(path, options);
-      return await doPlaneFetch(url);
+      const payload = await doPlaneFetch(url);
+      return { payload, resolvedPath: path };
     } catch (error) {
       if (error instanceof PlaneApiError && (error.status === 404 || error.status === 405)) {
         failures.push(`${path} -> ${error.status}`);
@@ -129,19 +130,23 @@ async function requestPlaneWithFallback(paths, options = {}) {
 
 /**
  * @param {unknown} payload
- * @returns {{ items: any[], next: string | null }}
+ * @returns {{ items: any[], next: string | null, nextCursor: string | null }}
  */
 function normalizePaginatedPayload(payload) {
   if (Array.isArray(payload)) {
-    return { items: payload, next: null };
+    return { items: payload, next: null, nextCursor: null };
   }
 
   if (!payload || typeof payload !== "object") {
-    return { items: [], next: null };
+    return { items: [], next: null, nextCursor: null };
   }
 
   if (Array.isArray(payload.results)) {
-    return { items: payload.results, next: typeof payload.next === "string" ? payload.next : null };
+    return {
+      items: payload.results,
+      next: typeof payload.next === "string" ? payload.next : null,
+      nextCursor: typeof payload.next_cursor === "string" ? payload.next_cursor : null,
+    };
   }
 
   if (Array.isArray(payload.data)) {
@@ -153,10 +158,11 @@ function normalizePaginatedPayload(payload) {
           : typeof payload.next_page_url === "string"
             ? payload.next_page_url
             : null,
+      nextCursor: typeof payload.next_cursor === "string" ? payload.next_cursor : null,
     };
   }
 
-  return { items: [], next: null };
+  return { items: [], next: null, nextCursor: null };
 }
 
 /**
@@ -167,15 +173,28 @@ async function fetchAllPlanePages(paths, options = {}) {
   /** @type {any[]} */
   const aggregated = [];
 
-  let payload = await requestPlaneWithFallback(paths, options);
+  let { payload, resolvedPath } = await requestPlaneWithFallback(paths, options);
+  const baseQuery = { ...(options.query ?? {}) };
+
   while (true) {
-    const { items, next } = normalizePaginatedPayload(payload);
+    const { items, next, nextCursor } = normalizePaginatedPayload(payload);
     aggregated.push(...items);
 
-    if (!next) break;
+    if (next) {
+      const nextUrl = next.startsWith("http") ? new URL(next) : buildPlaneUrl(next);
+      payload = await doPlaneFetch(nextUrl);
+      continue;
+    }
 
-    const nextUrl = next.startsWith("http") ? new URL(next) : buildPlaneUrl(next);
-    payload = await doPlaneFetch(nextUrl);
+    if (nextCursor) {
+      const cursorUrl = buildPlaneUrl(resolvedPath, {
+        query: { ...baseQuery, cursor: nextCursor },
+      });
+      payload = await doPlaneFetch(cursorUrl);
+      continue;
+    }
+
+    break;
   }
 
   return aggregated;
@@ -247,8 +266,11 @@ function getIssueStateId(issue) {
   if (!issue || typeof issue !== "object") return null;
 
   if (typeof issue.state_id === "string") return issue.state_id;
+  if (typeof issue.state_id === "number") return String(issue.state_id);
   if (typeof issue.state === "string") return issue.state;
+  if (typeof issue.state === "number") return String(issue.state);
   if (issue.state && typeof issue.state === "object" && typeof issue.state.id === "string") return issue.state.id;
+  if (issue.state && typeof issue.state === "object" && typeof issue.state.id === "number") return String(issue.state.id);
 
   return null;
 }
@@ -419,9 +441,9 @@ function appendLog(envId, line) {
  * @param {string} envId
  * @param {string} projectId
  * @param {string} moduleId
- * @param {string | null} statusId
+ * @param {string[]} statusIds
  */
-async function runTestStaging(envId, projectId, moduleId, statusId) {
+async function runTestStaging(envId, projectId, moduleId, statusIds) {
   const env = getEnvs()[envId];
   const git = simpleGit(env.repoPath);
 
@@ -429,14 +451,20 @@ async function runTestStaging(envId, projectId, moduleId, statusId) {
 
   const { workspaceSlug } = getPlaneConfig();
   const moduleItems = await fetchAllPlanePages([
+    `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules/${moduleId}/module-issues/`,
+    `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules/${moduleId}/module-issues`,
     `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules/${moduleId}/issues/`,
     `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules/${moduleId}/issues`,
     `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules/${moduleId}/work-items/`,
     `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules/${moduleId}/work-items`,
   ]);
 
-  const filteredItems = statusId
-    ? moduleItems.filter((item) => getIssueStateId(item) === statusId)
+  const selectedStatusSet = new Set(statusIds);
+  const filteredItems = selectedStatusSet.size > 0
+    ? moduleItems.filter((item) => {
+      const stateId = getIssueStateId(item);
+      return !!stateId && selectedStatusSet.has(stateId);
+    })
     : moduleItems;
 
   appendLog(envId, `Fetched ${moduleItems.length} ticket(s) from module. Using ${filteredItems.length} ticket(s) after status filter.`);
@@ -541,7 +569,7 @@ async function runTestStaging(envId, projectId, moduleId, statusId) {
     envId,
     projectId,
     moduleId,
-    statusId,
+    statusIds,
     stagingBranch,
     mergedCount: merged.length,
     conflictedCount: conflicts.length,
@@ -550,7 +578,7 @@ async function runTestStaging(envId, projectId, moduleId, statusId) {
 }
 
 /**
- * @param {{ envId: string, projectId: string, moduleId: string, statusId?: string | null }} input
+ * @param {{ envId: string, projectId: string, moduleId: string, statusIds?: string[] }} input
  */
 export function startTestStagingRun(input) {
   if (testStagingState.status === "running") {
@@ -560,7 +588,7 @@ export function startTestStagingRun(input) {
   }
 
   const { envId, projectId, moduleId } = input;
-  const statusId = input.statusId ? String(input.statusId) : null;
+  const statusIds = [...new Set((input.statusIds || []).map((statusId) => String(statusId || "").trim()).filter(Boolean))];
 
   testStagingState.status = "running";
   testStagingState.log = [];
@@ -570,7 +598,7 @@ export function startTestStagingRun(input) {
     envId,
     projectId,
     moduleId,
-    statusId,
+    statusIds,
     stagingBranch: null,
     mergedCount: 0,
     conflictedCount: 0,
@@ -578,9 +606,9 @@ export function startTestStagingRun(input) {
   };
 
   appendLog(envId, "Starting test staging workflow...");
-  if (statusId) appendLog(envId, `Status filter: ${statusId}`);
+  if (statusIds.length > 0) appendLog(envId, `Status filters: ${statusIds.join(", ")}`);
 
-  runTestStaging(envId, projectId, moduleId, statusId)
+  runTestStaging(envId, projectId, moduleId, statusIds)
     .then(() => {
       testStagingState.status = "success";
       testStagingState.finishedAt = new Date().toISOString();
