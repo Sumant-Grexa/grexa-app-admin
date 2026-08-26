@@ -13,7 +13,9 @@ import {
  */
 export async function getTestStagingModules(_req, res) {
   try {
-    const modules = await fetchPlaneModules();
+    const refresh = String(_req.query?.refresh || "").trim();
+    const forceRefresh = refresh === "1" || refresh.toLowerCase() === "true";
+    const modules = await fetchPlaneModules(forceRefresh);
     res.json({ modules });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });

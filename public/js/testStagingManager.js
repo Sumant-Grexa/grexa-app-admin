@@ -369,8 +369,13 @@ export function initTestStagingManager() {
 
     try {
       await loadEnvOptions();
-      await loadModules();
-      await loadStates("");
+      if (moduleOptions.length === 0) {
+        await loadModules();
+      } else {
+        updateModuleDisplay();
+        renderModuleOptions(moduleSearch?.value || "");
+      }
+      await loadStates(selectedModule?.projectId || "");
       await refreshExistingRunState();
     } catch (error) {
       showTsError(error instanceof Error ? error.message : "Failed to load Test Staging options");

@@ -2,6 +2,7 @@ import simpleGit from "simple-git";
 import { getEnvs } from "../config/environments.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
+const DEFAULT_MODULE_CACHE_TTL_MS = 15 * 60 * 1000;
 
 export const testStagingState = {
   status: "idle", // 'idle' | 'running' | 'success' | 'error'
@@ -9,6 +10,11 @@ export const testStagingState = {
   startedAt: null,
   finishedAt: null,
   meta: null,
+};
+
+const moduleListCache = {
+  fetchedAt: 0,
+  modules: /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */ ([]),
 };
 
 class PlaneApiError extends Error {
@@ -43,6 +49,13 @@ function getPlaneConfig() {
   }
 
   return { baseUrl, workspaceSlug, apiKey, scopedProjectIds };
+}
+
+/** @returns {number} */
+function getModuleCacheTtlMs() {
+  const raw = Number.parseInt(String(process.env.PLANE_MODULE_CACHE_TTL_MS || ""), 10);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return DEFAULT_MODULE_CACHE_TTL_MS;
 }
 
 /**
@@ -333,7 +346,14 @@ function getInlineIssueLinks(issue) {
 }
 
 /** @returns {Promise<Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>>} */
-export async function fetchPlaneModules() {
+export async function fetchPlaneModules(forceRefresh = false) {
+  const cacheTtl = getModuleCacheTtlMs();
+  const cacheAge = Date.now() - moduleListCache.fetchedAt;
+  const cacheValid = moduleListCache.modules.length > 0 && cacheAge >= 0 && cacheAge <= cacheTtl;
+  if (!forceRefresh && cacheValid) {
+    return [...moduleListCache.modules];
+  }
+
   const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
   const projectBase = `/api/v1/workspaces/${workspaceSlug}/projects`;
 
@@ -352,25 +372,46 @@ export async function fetchPlaneModules() {
     projectRows = projectRows.filter((project) => scoped.has(project.projectId));
   }
 
-  const moduleRows = await Promise.all(
-    projectRows.map(async (project) => {
-      let modules = [];
-      try {
-        modules = await fetchAllPlanePages([
-          `${projectBase}/${project.projectId}/modules/`,
-          `${projectBase}/${project.projectId}/modules`,
-        ]);
-      } catch (error) {
-        if (error instanceof PlaneApiError && error.status === 403) {
-          console.warn(
-            `[test-staging] Skipping project ${project.projectId} (${project.projectName}) while listing modules: 403 Forbidden`
-          );
-          return [];
-        }
-        throw error;
+  /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */
+  const moduleRows = [];
+
+  for (const project of projectRows) {
+    let modules = [];
+    try {
+      modules = await fetchAllPlanePages([
+        `${projectBase}/${project.projectId}/modules/`,
+        `${projectBase}/${project.projectId}/modules`,
+      ]);
+    } catch (error) {
+      if (error instanceof PlaneApiError && error.status === 403) {
+        console.warn(
+          `[test-staging] Skipping project ${project.projectId} (${project.projectName}) while listing modules: 403 Forbidden`
+        );
+        continue;
       }
 
-      return modules
+      if (error instanceof PlaneApiError && error.status === 429) {
+        if (moduleRows.length > 0) {
+          console.warn(
+            `[test-staging] Plane rate-limited module listing. Returning partial modules (${moduleRows.length}) collected before 429.`
+          );
+          break;
+        }
+        if (moduleListCache.modules.length > 0) {
+          console.warn("[test-staging] Plane rate-limited module listing. Returning stale cached modules.");
+          return [...moduleListCache.modules];
+        }
+
+        throw new Error(
+          "Plane API rate limit hit while loading modules (429). Retry shortly, limit projects via PLANE_TEST_STAGING_PROJECT_IDS, or use cached modules."
+        );
+      }
+
+      throw error;
+    }
+
+    moduleRows.push(
+      ...modules
         .map((module) => ({
           projectId: project.projectId,
           projectName: project.projectName,
@@ -378,13 +419,18 @@ export async function fetchPlaneModules() {
           moduleId: String(module.id || ""),
           moduleName: String(module.name || module.title || ""),
         }))
-        .filter((module) => module.moduleId && module.moduleName);
-    })
-  );
+        .filter((module) => module.moduleId && module.moduleName)
+    );
+  }
 
-  return moduleRows
-    .flat()
-    .sort((a, b) => `${a.projectName}/${a.moduleName}`.localeCompare(`${b.projectName}/${b.moduleName}`));
+  const sorted = moduleRows.sort((a, b) => `${a.projectName}/${a.moduleName}`.localeCompare(`${b.projectName}/${b.moduleName}`));
+
+  if (sorted.length > 0) {
+    moduleListCache.fetchedAt = Date.now();
+    moduleListCache.modules = sorted;
+  }
+
+  return sorted;
 }
 
 /**
