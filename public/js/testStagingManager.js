@@ -8,17 +8,23 @@ import {
   getTestStagingLog,
 } from "./testStagingApi.js";
 import { openTestStagingLog, startTestStagingLogPolling } from "./log.js";
+import { createPaginatedSearchDropdown } from "./paginatedSearchDropdown.js";
 
 let logPollingActive = false;
 
-/** @type {Array<{ moduleId: string, projectId: string, projectName: string, moduleName: string, projectIdentifier?: string }>} */
-let moduleOptions = [];
 /** @type {{ moduleId: string, projectId: string, projectName: string, moduleName: string, projectIdentifier?: string } | null} */
 let selectedModule = null;
 /** @type {Array<{ id: string, name: string }>} */
 let statusOptions = [];
 const selectedStatusIds = new Set();
 let moduleSelectionEnabled = false;
+let moduleDropdownCtrl = null;
+
+const MODULE_PAGE_LIMIT = 25;
+
+function getModuleKey(module) {
+  return `${String(module?.projectId || "").trim()}::${String(module?.moduleId || "").trim()}`;
+}
 
 function showTsError(message) {
   const el = document.getElementById("ts-error");
@@ -74,7 +80,7 @@ function setSubmitRunning(running) {
 }
 
 function closeAllDropdowns() {
-  document.getElementById("ts-module-dropdown")?.classList.add("hidden");
+  moduleDropdownCtrl?.close();
   document.getElementById("ts-status-dropdown")?.classList.add("hidden");
 }
 
@@ -94,7 +100,12 @@ function setModuleSelectionEnabled(enabled) {
     return;
   }
 
-  trigger.disabled = moduleOptions.length === 0;
+  if (moduleDropdownCtrl?.isLoading()) {
+    trigger.disabled = false;
+    return;
+  }
+
+  trigger.disabled = (moduleDropdownCtrl?.getItemCount() || 0) === 0;
 }
 
 function updateModuleDisplay() {
@@ -102,7 +113,8 @@ function updateModuleDisplay() {
   if (!display) return;
 
   if (!selectedModule) {
-    if (moduleOptions.length > 0) display.textContent = "Select module";
+    if (moduleDropdownCtrl?.isLoading()) display.textContent = "Loading modules...";
+    else if ((moduleDropdownCtrl?.getItemCount() || 0) > 0) display.textContent = "Select module";
     else display.textContent = "No cached module selected";
     return;
   }
@@ -129,35 +141,6 @@ function updateStatusDisplay() {
   }
 
   display.textContent = `${selectedNames.length} statuses selected`;
-}
-
-function renderModuleOptions(query = "") {
-  const optionsEl = document.getElementById("ts-module-options");
-  if (!optionsEl) return;
-
-  const term = query.trim().toLowerCase();
-  const filtered = moduleOptions.filter((module) => {
-    const searchable = `${module.projectName} ${module.moduleName}`.toLowerCase();
-    return searchable.includes(term);
-  });
-
-  optionsEl.innerHTML = "";
-
-  if (filtered.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "branch-option disabled";
-    empty.textContent = "No modules found";
-    optionsEl.appendChild(empty);
-    return;
-  }
-
-  for (const module of filtered) {
-    const option = document.createElement("div");
-    option.className = `branch-option${selectedModule?.moduleId === module.moduleId ? " selected" : ""}`;
-    option.dataset.moduleId = module.moduleId;
-    option.textContent = `${module.projectName} / ${module.moduleName}`;
-    optionsEl.appendChild(option);
-  }
 }
 
 function renderStatusOptions(query = "") {
@@ -224,30 +207,6 @@ async function loadPreferences() {
   }
 }
 
-async function loadModules() {
-  const search = document.getElementById("ts-module-search");
-
-  const { modules } = await getTestStagingModules();
-  moduleOptions = modules || [];
-
-  if (search) search.value = "";
-  updateModuleDisplay();
-  renderModuleOptions();
-
-  if (moduleOptions.length === 0) {
-    setModuleHint("No modules returned. Try again later or verify Plane permissions.");
-  }
-
-  if (moduleSelectionEnabled) {
-    setModuleSelectionEnabled(true);
-  }
-}
-
-async function ensureModuleOptionsLoaded() {
-  if (moduleOptions.length > 0) return;
-  await loadModules();
-}
-
 async function loadStates(projectId) {
   const trigger = document.getElementById("ts-status-trigger");
   const search = document.getElementById("ts-status-search");
@@ -310,6 +269,58 @@ async function refreshExistingRunState() {
   }
 }
 
+function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
+  moduleDropdownCtrl = createPaginatedSearchDropdown({
+    dropdownEl: moduleDropdown,
+    searchInputEl: moduleSearch,
+    optionsEl: moduleOptionsEl,
+    limit: MODULE_PAGE_LIMIT,
+    debounceMs: 250,
+    scrollThresholdPx: 24,
+    emptyText: "No modules found",
+    loadingText: "Loading modules...",
+    loadMoreText: "Load more modules",
+    loadingMoreText: "Loading more modules...",
+    getItemKey: (module) => getModuleKey(module),
+    getItemLabel: (module) => `${module.projectName} / ${module.moduleName}`,
+    getSelectedKey: () => getModuleKey(selectedModule),
+    loadPage: async ({ search, cursor, limit }) => {
+      const response = await getTestStagingModules({ search, cursor, limit });
+      return {
+        items: Array.isArray(response?.modules) ? response.modules : [],
+        nextCursor: response?.nextCursor || null,
+        hasMore: Boolean(response?.hasMore),
+      };
+    },
+    onSelect: async (picked) => {
+      hideTsError();
+      const response = await saveTestStagingSelectedModule(picked);
+      selectedModule = response?.selectedModule || picked;
+
+      updateModuleDisplay();
+      setModuleSelectionEnabled(false);
+      setModuleHint("Using cached selected module. Click Change to switch.");
+
+      try {
+        await loadStates(selectedModule?.projectId || "");
+      } catch (error) {
+        showTsError(error instanceof Error ? error.message : "Failed to load statuses from Plane");
+      }
+    },
+    onError: (error) => {
+      showTsError(error instanceof Error ? error.message : "Failed to load modules");
+    },
+    onStateChange: ({ loading, itemCount }) => {
+      setModuleSelectionEnabled(moduleSelectionEnabled);
+      updateModuleDisplay();
+
+      if (!loading && moduleSelectionEnabled && itemCount === 0) {
+        setModuleHint("No modules found. Try another search term.");
+      }
+    },
+  });
+}
+
 export function initTestStagingManager() {
   const modal = document.getElementById("test-staging-modal");
   const form = document.getElementById("test-staging-form");
@@ -325,15 +336,22 @@ export function initTestStagingManager() {
   const statusSearch = document.getElementById("ts-status-search");
   const statusOptionsEl = document.getElementById("ts-status-options");
 
+  if (!moduleDropdown || !moduleSearch || !moduleOptionsEl) {
+    return;
+  }
+
+  initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl });
+
   document.addEventListener("click", () => closeAllDropdowns());
 
   moduleTrigger?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!moduleSelectionEnabled || moduleTrigger.disabled) return;
+
     statusDropdown?.classList.add("hidden");
-    moduleDropdown?.classList.toggle("hidden");
-    if (!moduleDropdown?.classList.contains("hidden")) {
-      moduleSearch?.focus();
+    moduleDropdownCtrl?.toggle();
+    if (moduleDropdownCtrl?.isOpen()) {
+      moduleDropdownCtrl.focusSearch();
     }
   });
 
@@ -342,12 +360,13 @@ export function initTestStagingManager() {
     hideTsError();
 
     try {
-      await ensureModuleOptionsLoaded();
       setModuleSelectionEnabled(true);
-      setModuleHint("Select a module. On selection it will be cached for future runs.");
+      setModuleHint("Search and select a module. Results load page by page.");
+
       statusDropdown?.classList.add("hidden");
-      moduleDropdown?.classList.remove("hidden");
-      moduleSearch?.focus();
+      moduleDropdownCtrl?.open();
+      moduleDropdownCtrl?.focusSearch();
+      await moduleDropdownCtrl?.ensureLoaded({ reset: true });
     } catch (error) {
       showTsError(error instanceof Error ? error.message : "Failed to load modules");
     }
@@ -356,7 +375,8 @@ export function initTestStagingManager() {
   statusTrigger?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (statusTrigger.disabled) return;
-    moduleDropdown?.classList.add("hidden");
+
+    moduleDropdownCtrl?.close();
     statusDropdown?.classList.toggle("hidden");
     if (!statusDropdown?.classList.contains("hidden")) {
       statusSearch?.focus();
@@ -366,52 +386,12 @@ export function initTestStagingManager() {
   moduleDropdown?.addEventListener("click", (event) => event.stopPropagation());
   statusDropdown?.addEventListener("click", (event) => event.stopPropagation());
 
-  moduleSearch?.addEventListener("input", () => {
-    renderModuleOptions(moduleSearch.value);
-  });
-
   statusSearch?.addEventListener("input", () => {
     renderStatusOptions(statusSearch.value);
   });
 
-  moduleSearch?.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") moduleDropdown?.classList.add("hidden");
-  });
-
   statusSearch?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") statusDropdown?.classList.add("hidden");
-  });
-
-  moduleOptionsEl?.addEventListener("click", async (event) => {
-    const option = event.target.closest(".branch-option");
-    if (!option || option.classList.contains("disabled")) return;
-
-    const moduleId = option.dataset.moduleId;
-    if (!moduleId) return;
-
-    const picked = moduleOptions.find((module) => module.moduleId === moduleId) || null;
-    if (!picked) return;
-
-    try {
-      const response = await saveTestStagingSelectedModule(picked);
-      selectedModule = response?.selectedModule || picked;
-    } catch (error) {
-      showTsError(error instanceof Error ? error.message : "Failed to persist selected module");
-      return;
-    }
-
-    updateModuleDisplay();
-    renderModuleOptions(moduleSearch?.value || "");
-    moduleDropdown?.classList.add("hidden");
-    setModuleSelectionEnabled(false);
-    setModuleHint("Using cached selected module. Click Change to switch.");
-
-    try {
-      hideTsError();
-      await loadStates(selectedModule?.projectId || "");
-    } catch (error) {
-      showTsError(error instanceof Error ? error.message : "Failed to load statuses from Plane");
-    }
   });
 
   statusOptionsEl?.addEventListener("click", (event) => {
@@ -441,12 +421,13 @@ export function initTestStagingManager() {
       await loadPreferences();
 
       if (!selectedModule) {
-        await ensureModuleOptionsLoaded();
+        moduleDropdownCtrl?.clearSearch();
+        await moduleDropdownCtrl?.ensureLoaded({ reset: true });
         setModuleSelectionEnabled(true);
       }
 
       updateModuleDisplay();
-      renderModuleOptions(moduleSearch?.value || "");
+      moduleDropdownCtrl?.render();
       await loadStates(selectedModule?.projectId || "");
       await refreshExistingRunState();
     } catch (error) {

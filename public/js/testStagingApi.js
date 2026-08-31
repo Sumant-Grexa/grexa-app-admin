@@ -1,7 +1,12 @@
 import { api } from "./api.js";
 
-export async function getTestStagingModules() {
-  return api("GET", "/api/test-staging/modules");
+export async function getTestStagingModules({ search = "", cursor = "", limit = 25 } = {}) {
+  const query = new URLSearchParams();
+  if (search) query.set("search", search);
+  if (cursor) query.set("cursor", cursor);
+  if (Number.isFinite(limit) && limit > 0) query.set("limit", String(limit));
+  const queryString = query.toString();
+  return api("GET", `/api/test-staging/modules${queryString ? `?${queryString}` : ""}`);
 }
 
 export async function getTestStagingPreferences() {
