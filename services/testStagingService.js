@@ -13,6 +13,10 @@ const DEFAULT_PROJECT_CACHE_TTL_MS = 5 * 60 * 1000;
 const MODULE_BROWSE_SESSION_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MODULE_PAGE_SIZE = 25;
 const MAX_MODULE_PAGE_SIZE = 100;
+const DEFAULT_PLANE_REQUEST_GAP_MS = 250;
+const DEFAULT_PLANE_MAX_429_RETRIES = 3;
+const DEFAULT_PLANE_429_BACKOFF_MS = 1000;
+const MAX_PLANE_DEBUG_EVENTS = 400;
 
 export const testStagingState = {
   status: "idle", // 'idle' | 'running' | 'success' | 'error'
@@ -34,18 +38,25 @@ const projectListCache = {
 /** @type {Map<string, { id: string, search: string, projectRows: Array<{ projectId: string, projectName: string, projectIdentifier: string }>, projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }>} */
 const moduleBrowseSessions = new Map();
 let selectedModuleCache = persistedCache.selectedModule || null;
+/** @type {Promise<unknown>} */
+let planeRequestChain = Promise.resolve();
+let lastPlaneRequestAt = 0;
+/** @type {Array<{ timestamp: string, url: string, path: string, status: number, statusText: string, durationMs: number, attempt: number, retryAfterMs: number | null }>} */
+const planeRequestDebugEvents = [];
 
 class PlaneApiError extends Error {
   /**
    * @param {string} message
    * @param {number} status
    * @param {unknown} details
+   * @param {{ url?: string, attempt?: number, retryAfterMs?: number | null }} [meta]
    */
-  constructor(message, status, details) {
+  constructor(message, status, details, meta = {}) {
     super(message);
     this.name = "PlaneApiError";
     this.status = status;
     this.details = details;
+    this.meta = meta;
   }
 }
 
@@ -92,6 +103,77 @@ function getProjectCacheTtlMs() {
   const raw = Number.parseInt(String(process.env.PLANE_PROJECT_CACHE_TTL_MS || ""), 10);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return DEFAULT_PROJECT_CACHE_TTL_MS;
+}
+
+/** @returns {number} */
+function getPlaneRequestGapMs() {
+  const raw = Number.parseInt(String(process.env.PLANE_REQUEST_GAP_MS || ""), 10);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return DEFAULT_PLANE_REQUEST_GAP_MS;
+}
+
+/** @returns {number} */
+function getPlaneMax429Retries() {
+  const raw = Number.parseInt(String(process.env.PLANE_429_MAX_RETRIES || ""), 10);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return DEFAULT_PLANE_MAX_429_RETRIES;
+}
+
+/** @returns {number} */
+function getPlane429BackoffMs() {
+  const raw = Number.parseInt(String(process.env.PLANE_429_BACKOFF_MS || ""), 10);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return DEFAULT_PLANE_429_BACKOFF_MS;
+}
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * @param {string | null} retryAfter
+ * @returns {number | null}
+ */
+function parseRetryAfterMs(retryAfter) {
+  if (!retryAfter) return null;
+
+  const trimmed = retryAfter.trim();
+  if (!trimmed) return null;
+
+  const asSeconds = Number.parseFloat(trimmed);
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+    return Math.round(asSeconds * 1000);
+  }
+
+  const asDate = Date.parse(trimmed);
+  if (!Number.isFinite(asDate)) return null;
+  return Math.max(0, asDate - Date.now());
+}
+
+/**
+ * @param {{ timestamp: string, url: string, path: string, status: number, statusText: string, durationMs: number, attempt: number, retryAfterMs: number | null }} event
+ */
+function pushPlaneDebugEvent(event) {
+  planeRequestDebugEvents.push(event);
+  if (planeRequestDebugEvents.length > MAX_PLANE_DEBUG_EVENTS) {
+    planeRequestDebugEvents.splice(0, planeRequestDebugEvents.length - MAX_PLANE_DEBUG_EVENTS);
+  }
+}
+
+/**
+ * @param {number} [limit]
+ * @returns {Array<{ timestamp: string, url: string, path: string, status: number, statusText: string, durationMs: number, attempt: number, retryAfterMs: number | null }>}
+ */
+export function getPlaneRequestDebugLog(limit = 200) {
+  const parsedLimit = Number.parseInt(String(limit), 10);
+  const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), MAX_PLANE_DEBUG_EVENTS) : 200;
+  const start = Math.max(0, planeRequestDebugEvents.length - safeLimit);
+  return planeRequestDebugEvents.slice(start).map((event) => ({ ...event }));
 }
 
 /**
@@ -179,29 +261,75 @@ function buildPlaneUrl(path, options = {}) {
  * @param {URL} url
  */
 async function doPlaneFetch(url) {
-  const { apiKey } = getPlaneConfig();
-  const res = await fetch(url, {
-    method: "GET",
-    headers: buildPlaneHeaders(apiKey),
-  });
+  const run = async () => {
+    const { apiKey } = getPlaneConfig();
+    const max429Retries = getPlaneMax429Retries();
+    const baseBackoffMs = getPlane429BackoffMs();
 
-  const text = await res.text();
-  let parsed = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = text;
-  }
+    for (let attempt = 1; attempt <= max429Retries + 1; attempt += 1) {
+      const gapMs = getPlaneRequestGapMs();
+      const waitForGap = Math.max(0, gapMs - (Date.now() - lastPlaneRequestAt));
+      if (waitForGap > 0) {
+        await sleep(waitForGap);
+      }
 
-  if (!res.ok) {
+      const startedAt = Date.now();
+      const res = await fetch(url, {
+        method: "GET",
+        headers: buildPlaneHeaders(apiKey),
+      });
+      const finishedAt = Date.now();
+      lastPlaneRequestAt = finishedAt;
+
+      const text = await res.text();
+      let parsed = null;
+      try {
+        parsed = text ? JSON.parse(text) : null;
+      } catch {
+        parsed = text;
+      }
+
+      const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
+      pushPlaneDebugEvent({
+        timestamp: new Date(finishedAt).toISOString(),
+        url: url.toString(),
+        path: `${url.pathname}${url.search}`,
+        status: res.status,
+        statusText: res.statusText,
+        durationMs: Math.max(0, finishedAt - startedAt),
+        attempt,
+        retryAfterMs,
+      });
+
+      if (res.status === 429 && attempt <= max429Retries) {
+        const retryDelay = retryAfterMs ?? Math.max(100, baseBackoffMs * (2 ** (attempt - 1)));
+        await sleep(retryDelay);
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new PlaneApiError(
+          `Plane API ${res.status} ${res.statusText} for ${url.pathname}${attempt > 1 ? ` after ${attempt} attempts` : ""}`,
+          res.status,
+          parsed,
+          { url: url.toString(), attempt, retryAfterMs }
+        );
+      }
+
+      return parsed;
+    }
+
     throw new PlaneApiError(
-      `Plane API ${res.status} ${res.statusText} for ${url.pathname}`,
-      res.status,
-      parsed
+      `Plane API 429 Too Many Requests for ${url.pathname} after retry exhaustion`,
+      429,
+      null,
+      { url: url.toString(), attempt: max429Retries + 1, retryAfterMs: null }
     );
-  }
+  };
 
-  return parsed;
+  const scheduledRun = planeRequestChain.then(run, run);
+  planeRequestChain = scheduledRun.catch(() => {});
+  return scheduledRun;
 }
 
 /**

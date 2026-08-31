@@ -2,6 +2,7 @@ import { getEnvs } from "../config/environments.js";
 import {
   fetchPlaneModulesPage,
   fetchPlaneStates,
+  getPlaneRequestDebugLog,
   getSelectedTestStagingModule,
   getTestStagingPreferences,
   saveSelectedTestStagingModule,
@@ -149,5 +150,18 @@ export function getTestStagingLog(_req, res) {
     startedAt: testStagingState.startedAt,
     finishedAt: testStagingState.finishedAt,
     meta: testStagingState.meta,
+  });
+}
+
+/**
+ * GET /api/test-staging/plane-requests
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export function getTestStagingPlaneRequests(req, res) {
+  const parsedLimit = Number.parseInt(String(req.query?.limit || ""), 10);
+  const limit = Number.isFinite(parsedLimit) ? parsedLimit : 200;
+  return res.json({
+    events: getPlaneRequestDebugLog(limit),
   });
 }

@@ -29,3 +29,9 @@ export async function startTestStaging(payload) {
 export async function getTestStagingLog() {
   return api("GET", "/api/test-staging/log");
 }
+
+export async function getTestStagingPlaneRequests(limit = 120) {
+  const query = new URLSearchParams();
+  if (Number.isFinite(limit) && limit > 0) query.set("limit", String(limit));
+  return api("GET", `/api/test-staging/plane-requests${query.toString() ? `?${query.toString()}` : ""}`);
+}

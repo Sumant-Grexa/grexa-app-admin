@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import {
   getTestStagingModules,
+  getTestStagingPlaneRequests,
   getTestStagingPreferences,
   getTestStagingStates,
   saveTestStagingSelectedModule,
@@ -19,6 +20,7 @@ let statusOptions = [];
 const selectedStatusIds = new Set();
 let moduleSelectionEnabled = false;
 let moduleDropdownCtrl = null;
+let planeDebugPollTimer = null;
 
 const MODULE_PAGE_LIMIT = 25;
 
@@ -82,6 +84,29 @@ function setSubmitRunning(running) {
 function closeAllDropdowns() {
   moduleDropdownCtrl?.close();
   document.getElementById("ts-status-dropdown")?.classList.add("hidden");
+}
+
+function stopPlaneDebugPolling() {
+  if (planeDebugPollTimer) {
+    clearTimeout(planeDebugPollTimer);
+    planeDebugPollTimer = null;
+  }
+}
+
+function startPlaneDebugPolling() {
+  stopPlaneDebugPolling();
+
+  const tick = async () => {
+    try {
+      await getTestStagingPlaneRequests(150);
+    } catch {
+      // Ignore debug polling errors.
+    } finally {
+      planeDebugPollTimer = window.setTimeout(tick, 4000);
+    }
+  };
+
+  void tick();
 }
 
 function setModuleHint(text) {
@@ -420,6 +445,7 @@ export function initTestStagingManager() {
   document.getElementById("test-staging-open-btn")?.addEventListener("click", async () => {
     hideTsError();
     modal?.classList.remove("hidden");
+    startPlaneDebugPolling();
 
     try {
       await loadEnvOptions();
@@ -444,17 +470,20 @@ export function initTestStagingManager() {
   });
 
   document.getElementById("test-staging-close")?.addEventListener("click", () => {
+    stopPlaneDebugPolling();
     closeAllDropdowns();
     modal?.classList.add("hidden");
   });
 
   document.getElementById("test-staging-cancel")?.addEventListener("click", () => {
+    stopPlaneDebugPolling();
     closeAllDropdowns();
     modal?.classList.add("hidden");
   });
 
   modal?.addEventListener("click", (event) => {
     if (event.target === modal) {
+      stopPlaneDebugPolling();
       closeAllDropdowns();
       modal.classList.add("hidden");
     }
