@@ -1,5 +1,6 @@
 import { getEnvs } from "../config/environments.js";
 import {
+  clearPlaneRequestDebugLog,
   fetchPlaneModulesPage,
   fetchPlaneStates,
   getPlaneRequestDebugLog,
@@ -17,18 +18,13 @@ import {
  */
 export async function getTestStagingModules(_req, res) {
   try {
-    const refresh = String(_req.query?.refresh || "").trim();
-    const forceRefresh = refresh === "1" || refresh.toLowerCase() === "true";
     const cursor = String(_req.query?.cursor || "").trim();
     const search = String(_req.query?.search || "").trim();
     const parsedLimit = Number.parseInt(String(_req.query?.limit || ""), 10);
     const limit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
-    const page = await fetchPlaneModulesPage({ forceRefresh, cursor, search, limit });
+    const page = await fetchPlaneModulesPage({ cursor, search, limit });
     res.json(page);
   } catch (error) {
-    if (error instanceof Error && error.code === "INVALID_CURSOR") {
-      return res.status(400).json({ error: error.message });
-    }
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -164,4 +160,14 @@ export function getTestStagingPlaneRequests(req, res) {
   return res.json({
     events: getPlaneRequestDebugLog(limit),
   });
+}
+
+/**
+ * DELETE /api/test-staging/plane-requests
+ * @param {import("express").Request} _req
+ * @param {import("express").Response} res
+ */
+export function clearTestStagingPlaneRequests(_req, res) {
+  clearPlaneRequestDebugLog();
+  return res.json({ ok: true });
 }

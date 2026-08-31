@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import {
+  clearTestStagingPlaneRequests,
   getTestStagingModules,
-  getTestStagingPlaneRequests,
   getTestStagingPreferences,
   getTestStagingStates,
   saveTestStagingSelectedModule,
@@ -20,7 +20,6 @@ let statusOptions = [];
 const selectedStatusIds = new Set();
 let moduleSelectionEnabled = false;
 let moduleDropdownCtrl = null;
-let planeDebugPollTimer = null;
 
 const MODULE_PAGE_LIMIT = 50;
 
@@ -86,29 +85,6 @@ function closeAllDropdowns() {
   document.getElementById("ts-status-dropdown")?.classList.add("hidden");
 }
 
-function stopPlaneDebugPolling() {
-  if (planeDebugPollTimer) {
-    clearTimeout(planeDebugPollTimer);
-    planeDebugPollTimer = null;
-  }
-}
-
-function startPlaneDebugPolling() {
-  stopPlaneDebugPolling();
-
-  const tick = async () => {
-    try {
-      await getTestStagingPlaneRequests(150);
-    } catch {
-      // Ignore debug polling errors.
-    } finally {
-      planeDebugPollTimer = window.setTimeout(tick, 4000);
-    }
-  };
-
-  void tick();
-}
-
 function setModuleHint(text) {
   const hint = document.getElementById("ts-module-hint");
   if (!hint) return;
@@ -125,12 +101,7 @@ function setModuleSelectionEnabled(enabled) {
     return;
   }
 
-  if (moduleDropdownCtrl?.isLoading()) {
-    trigger.disabled = false;
-    return;
-  }
-
-  trigger.disabled = (moduleDropdownCtrl?.getItemCount() || 0) === 0;
+  trigger.disabled = false;
 }
 
 function updateModuleDisplay() {
@@ -228,7 +199,7 @@ async function loadPreferences() {
     setModuleHint("Using cached selected module. Click Change to fetch/search modules.");
   } else {
     setModuleSelectionEnabled(true);
-    setModuleHint("No module selected. Click Change to fetch/search modules.");
+    setModuleHint("No module selected. Open dropdown to fetch/search modules.");
   }
 }
 
@@ -292,6 +263,12 @@ async function refreshExistingRunState() {
     setStatusBadge("idle");
     setSubmitRunning(false);
   }
+}
+
+function closeTestStagingModal(modal) {
+  closeAllDropdowns();
+  modal?.classList.add("hidden");
+  void clearTestStagingPlaneRequests().catch(() => {});
 }
 
 function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
@@ -374,14 +351,23 @@ export function initTestStagingManager() {
 
   document.addEventListener("click", () => closeAllDropdowns());
 
-  moduleTrigger?.addEventListener("click", (event) => {
+  moduleTrigger?.addEventListener("click", async (event) => {
     event.stopPropagation();
     if (!moduleSelectionEnabled || moduleTrigger.disabled) return;
 
     statusDropdown?.classList.add("hidden");
-    moduleDropdownCtrl?.toggle();
     if (moduleDropdownCtrl?.isOpen()) {
-      moduleDropdownCtrl.focusSearch();
+      moduleDropdownCtrl.close();
+      return;
+    }
+
+    moduleDropdownCtrl?.open();
+    moduleDropdownCtrl?.focusSearch();
+
+    try {
+      await moduleDropdownCtrl?.ensureLoaded({ reset: true });
+    } catch (error) {
+      showTsError(error instanceof Error ? error.message : "Failed to load modules");
     }
   });
 
@@ -394,6 +380,7 @@ export function initTestStagingManager() {
       setModuleHint("Search and select a module. Results load page by page.");
 
       statusDropdown?.classList.add("hidden");
+      moduleDropdownCtrl?.clearSearch();
       moduleDropdownCtrl?.open();
       moduleDropdownCtrl?.focusSearch();
       await moduleDropdownCtrl?.ensureLoaded({ reset: true });
@@ -445,19 +432,12 @@ export function initTestStagingManager() {
   document.getElementById("test-staging-open-btn")?.addEventListener("click", async () => {
     hideTsError();
     modal?.classList.remove("hidden");
-    startPlaneDebugPolling();
 
     try {
       await loadEnvOptions();
       await loadPreferences();
       if (manualModuleIdInput) {
         manualModuleIdInput.value = String(selectedModule?.moduleId || "");
-      }
-
-      if (!selectedModule) {
-        moduleDropdownCtrl?.clearSearch();
-        await moduleDropdownCtrl?.ensureLoaded({ reset: true });
-        setModuleSelectionEnabled(true);
       }
 
       updateModuleDisplay();
@@ -470,22 +450,16 @@ export function initTestStagingManager() {
   });
 
   document.getElementById("test-staging-close")?.addEventListener("click", () => {
-    stopPlaneDebugPolling();
-    closeAllDropdowns();
-    modal?.classList.add("hidden");
+    closeTestStagingModal(modal);
   });
 
   document.getElementById("test-staging-cancel")?.addEventListener("click", () => {
-    stopPlaneDebugPolling();
-    closeAllDropdowns();
-    modal?.classList.add("hidden");
+    closeTestStagingModal(modal);
   });
 
   modal?.addEventListener("click", (event) => {
     if (event.target === modal) {
-      stopPlaneDebugPolling();
-      closeAllDropdowns();
-      modal.classList.add("hidden");
+      closeTestStagingModal(modal);
     }
   });
 

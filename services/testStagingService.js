@@ -1,16 +1,11 @@
 import simpleGit from "simple-git";
-import { randomUUID } from "crypto";
 import { getEnvs } from "../config/environments.js";
 import {
   getTestStagingCache,
-  setTestStagingModuleCache,
   setTestStagingSelectedModule,
 } from "../config/testStagingCache.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
-const DEFAULT_MODULE_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const DEFAULT_PROJECT_CACHE_TTL_MS = 5 * 60 * 1000;
-const MODULE_BROWSE_SESSION_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MODULE_PAGE_SIZE = 25;
 const MAX_MODULE_PAGE_SIZE = 100;
 const DEFAULT_PLANE_REQUEST_GAP_MS = 250;
@@ -27,16 +22,6 @@ export const testStagingState = {
 };
 
 const persistedCache = getTestStagingCache();
-const moduleListCache = {
-  fetchedAt: Number(persistedCache.moduleCache?.fetchedAt || 0),
-  modules: Array.isArray(persistedCache.moduleCache?.modules) ? persistedCache.moduleCache.modules : [],
-};
-const projectListCache = {
-  fetchedAt: 0,
-  projects: [],
-};
-/** @type {Map<string, { id: string, search: string, projectRows: Array<{ projectId: string, projectName: string, projectIdentifier: string }>, projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }>} */
-const moduleBrowseSessions = new Map();
 /** @type {Map<string, string>} */
 const planeResolvedPathCache = new Map();
 let selectedModuleCache = persistedCache.selectedModule || null;
@@ -62,17 +47,6 @@ class PlaneApiError extends Error {
   }
 }
 
-class ModuleBrowseCursorError extends Error {
-  /**
-   * @param {string} message
-   */
-  constructor(message) {
-    super(message);
-    this.name = "ModuleBrowseCursorError";
-    this.code = "INVALID_CURSOR";
-  }
-}
-
 /** @returns {{ baseUrl: string, workspaceSlug: string, apiKey: string, scopedProjectIds: string[] }} */
 function getPlaneConfig() {
   const baseUrl = String(process.env.PLANE_API_BASE_URL || "https://api.plane.com").replace(/\/$/, "");
@@ -91,20 +65,6 @@ function getPlaneConfig() {
   }
 
   return { baseUrl, workspaceSlug, apiKey, scopedProjectIds };
-}
-
-/** @returns {number} */
-function getModuleCacheTtlMs() {
-  const raw = Number.parseInt(String(process.env.PLANE_MODULE_CACHE_TTL_MS || ""), 10);
-  if (Number.isFinite(raw) && raw > 0) return raw;
-  return DEFAULT_MODULE_CACHE_TTL_MS;
-}
-
-/** @returns {number} */
-function getProjectCacheTtlMs() {
-  const raw = Number.parseInt(String(process.env.PLANE_PROJECT_CACHE_TTL_MS || ""), 10);
-  if (Number.isFinite(raw) && raw > 0) return raw;
-  return DEFAULT_PROJECT_CACHE_TTL_MS;
 }
 
 /** @returns {number} */
@@ -178,6 +138,10 @@ export function getPlaneRequestDebugLog(limit = 200) {
   return planeRequestDebugEvents.slice(start).map((event) => ({ ...event }));
 }
 
+export function clearPlaneRequestDebugLog() {
+  planeRequestDebugEvents.splice(0, planeRequestDebugEvents.length);
+}
+
 /**
  * @param {unknown} module
  * @returns {{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string } | null}
@@ -223,10 +187,6 @@ export function saveSelectedTestStagingModule(module) {
 export function getTestStagingPreferences() {
   return {
     selectedModule: getSelectedTestStagingModule(),
-    moduleCache: {
-      fetchedAt: moduleListCache.fetchedAt,
-      count: moduleListCache.modules.length,
-    },
   };
 }
 
@@ -437,116 +397,52 @@ async function fetchAllPlanePages(paths, options = {}) {
   return aggregated;
 }
 
-function pruneModuleBrowseSessions() {
-  const now = Date.now();
-  for (const [cursor, session] of moduleBrowseSessions.entries()) {
-    if (session.expiresAt <= now) {
-      moduleBrowseSessions.delete(cursor);
-    }
-  }
-}
-
 /**
  * @param {string} search
  * @returns {string}
  */
 function normalizeModuleSearch(search) {
-  return String(search || "").trim().toLowerCase();
+  return String(search || "").trim();
 }
 
 /**
- * @param {{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier?: string }} module
- * @param {string} normalizedSearch
- * @returns {boolean}
+ * @param {string | null} next
+ * @returns {string | null}
  */
-function moduleMatchesSearch(module, normalizedSearch) {
-  if (!normalizedSearch) return true;
-  const searchable = `${module.projectName} ${module.moduleName} ${module.projectIdentifier || ""}`.toLowerCase();
-  return searchable.includes(normalizedSearch);
-}
-
-/**
- * @param {boolean} forceRefresh
- * @returns {Promise<Array<{ projectId: string, projectName: string, projectIdentifier: string }>>}
- */
-async function getPlaneProjects(forceRefresh = false) {
-  const cacheTtl = getProjectCacheTtlMs();
-  const cacheAge = Date.now() - projectListCache.fetchedAt;
-  const cacheValid = projectListCache.projects.length > 0 && cacheAge >= 0 && cacheAge <= cacheTtl;
-  if (!forceRefresh && cacheValid) {
-    return [...projectListCache.projects];
-  }
-
-  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
-  const projectBase = `/api/v1/workspaces/${workspaceSlug}/projects`;
-
+function extractPlaneCursor(next) {
+  if (!next) return null;
   try {
-    const projects = await fetchAllPlanePages([`${projectBase}/`, `${projectBase}`]);
-    let rows = projects
-      .map((project) => ({
-        projectId: String(project.id || "").trim(),
-        projectName: String(project.name || "").trim(),
-        projectIdentifier: String(project.identifier || "").trim(),
-      }))
-      .filter((project) => project.projectId && project.projectName);
-
-    if (scopedProjectIds.length > 0) {
-      const scoped = new Set(scopedProjectIds);
-      rows = rows.filter((project) => scoped.has(project.projectId));
-    }
-
-    rows.sort((a, b) => a.projectName.localeCompare(b.projectName));
-    projectListCache.fetchedAt = Date.now();
-    projectListCache.projects = rows;
-    return [...rows];
-  } catch (error) {
-    if (error instanceof PlaneApiError && error.status === 429 && projectListCache.projects.length > 0) {
-      console.warn("[test-staging] Plane rate-limited project listing. Returning stale cached project list.");
-      return [...projectListCache.projects];
-    }
-    throw error;
+    const url = next.startsWith("http") ? new URL(next) : buildPlaneUrl(next);
+    const cursor = String(url.searchParams.get("cursor") || "").trim();
+    return cursor || null;
+  } catch {
+    return null;
   }
 }
 
 /**
- * @param {string} nextPath
- * @returns {URL}
+ * @param {unknown} module
+ * @returns {{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string } | null}
  */
-function resolvePlaneNextUrl(nextPath) {
-  return nextPath.startsWith("http") ? new URL(nextPath) : buildPlaneUrl(nextPath);
-}
+function normalizePlaneModuleRecord(module) {
+  if (!module || typeof module !== "object") return null;
 
-/**
- * @param {{ projectId: string }} project
- * @param {{ projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null }} session
- * @returns {Promise<{ items: any[], next: string | null, nextCursor: string | null, resolvedPath: string | null }>}
- */
-async function fetchProjectModulesPage(project, session) {
-  const { workspaceSlug } = getPlaneConfig();
-  const projectBase = `/api/v1/workspaces/${workspaceSlug}/projects`;
+  const project =
+    module.project && typeof module.project === "object"
+      ? module.project
+      : module.project_detail && typeof module.project_detail === "object"
+        ? module.project_detail
+        : null;
 
-  if (session.projectNext) {
-    const payload = await doPlaneFetch(resolvePlaneNextUrl(session.projectNext));
-    const normalized = normalizePaginatedPayload(payload);
-    return { ...normalized, resolvedPath: session.projectResolvedPath };
-  }
-
-  if (session.projectNextCursor && session.projectResolvedPath) {
-    const payload = await doPlaneFetch(
-      buildPlaneUrl(session.projectResolvedPath, {
-        query: { cursor: session.projectNextCursor },
-      })
-    );
-    const normalized = normalizePaginatedPayload(payload);
-    return { ...normalized, resolvedPath: session.projectResolvedPath };
-  }
-
-  const { payload, resolvedPath } = await requestPlaneWithFallback([
-    `${projectBase}/${project.projectId}/modules/`,
-    `${projectBase}/${project.projectId}/modules`,
-  ]);
-  const normalized = normalizePaginatedPayload(payload);
-  return { ...normalized, resolvedPath };
+  return normalizeModuleRecord({
+    projectId: String(module.project_id || module.projectId || project?.id || "").trim(),
+    moduleId: String(module.id || module.module_id || module.moduleId || "").trim(),
+    projectName: String(module.project_name || module.projectName || project?.name || "").trim(),
+    moduleName: String(module.name || module.title || module.module_name || module.moduleName || "").trim(),
+    projectIdentifier: String(
+      module.project_identifier || module.projectIdentifier || project?.identifier || ""
+    ).trim(),
+  });
 }
 
 /**
@@ -688,215 +584,47 @@ function getInlineIssueLinks(issue) {
 export async function fetchPlaneModulesPage(input = {}) {
   const cursor = String(input.cursor || "").trim();
   const search = normalizeModuleSearch(input.search || "");
-  const forceRefresh = Boolean(input.forceRefresh);
   const rawLimit = Number.parseInt(String(input.limit ?? DEFAULT_MODULE_PAGE_SIZE), 10);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(MAX_MODULE_PAGE_SIZE, Math.max(1, rawLimit))
     : DEFAULT_MODULE_PAGE_SIZE;
 
-  pruneModuleBrowseSessions();
+  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
+  const query = { limit };
+  if (cursor) query.cursor = cursor;
+  if (search) query.search = search;
 
-  if (forceRefresh) {
-    projectListCache.fetchedAt = 0;
-    projectListCache.projects = [];
+  let payload;
+  try {
+    payload = await doPlaneFetch(
+      buildPlaneUrl(`/api/v1/workspaces/${workspaceSlug}/modules/`, {
+        query,
+      })
+    );
+  } catch (error) {
+    if (error instanceof PlaneApiError && error.status === 429) {
+      throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
+    }
+    throw error;
   }
 
-  /** @type {{ id: string, search: string, projectRows: Array<{ projectId: string, projectName: string, projectIdentifier: string }>, projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }} */
-  let session;
-  if (!cursor) {
-    const projectRows = await getPlaneProjects(forceRefresh);
-    session = {
-      id: randomUUID(),
-      search,
-      projectRows,
-      projectIndex: 0,
-      projectNext: null,
-      projectNextCursor: null,
-      projectResolvedPath: null,
-      buffered: [],
-      expiresAt: Date.now() + MODULE_BROWSE_SESSION_TTL_MS,
-    };
-    moduleBrowseSessions.set(session.id, session);
-  } else {
-    const existing = moduleBrowseSessions.get(cursor);
-    if (!existing) {
-      throw new ModuleBrowseCursorError("Module pagination cursor expired. Search again.");
-    }
-    if (existing.search !== search) {
-      throw new ModuleBrowseCursorError("Module pagination cursor does not match current search.");
-    }
-    existing.expiresAt = Date.now() + MODULE_BROWSE_SESSION_TTL_MS;
-    session = existing;
-  }
+  const page = normalizePaginatedPayload(payload);
+  const scopedProjectSet = scopedProjectIds.length > 0 ? new Set(scopedProjectIds) : null;
+  const modules = page.items
+    .map((module) => normalizePlaneModuleRecord(module))
+    .filter(Boolean)
+    .filter((module) => {
+      if (!scopedProjectSet) return true;
+      return scopedProjectSet.has(module.projectId);
+    });
 
-  /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */
-  const modules = [];
-
-  while (modules.length < limit) {
-    if (session.buffered.length > 0) {
-      const bufferedItem = session.buffered.shift();
-      if (bufferedItem) modules.push(bufferedItem);
-      continue;
-    }
-
-    if (session.projectIndex >= session.projectRows.length) break;
-
-    const project = session.projectRows[session.projectIndex];
-
-    let page;
-    try {
-      page = await fetchProjectModulesPage(project, session);
-    } catch (error) {
-      if (error instanceof PlaneApiError && error.status === 403) {
-        console.warn(
-          `[test-staging] Skipping project ${project.projectId} (${project.projectName}) while listing modules page: 403 Forbidden`
-        );
-        session.projectIndex += 1;
-        session.projectNext = null;
-        session.projectNextCursor = null;
-        session.projectResolvedPath = null;
-        continue;
-      }
-
-      if (error instanceof PlaneApiError && error.status === 429) {
-        throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
-      }
-      throw error;
-    }
-
-    const pageModules = page.items
-      .map((module) => normalizeModuleRecord({
-        projectId: project.projectId,
-        projectName: project.projectName,
-        projectIdentifier: project.projectIdentifier,
-        moduleId: String(module.id || ""),
-        moduleName: String(module.name || module.title || ""),
-      }))
-      .filter(Boolean)
-      .filter((module) => moduleMatchesSearch(module, search));
-
-    if (pageModules.length > 0) {
-      session.buffered.push(...pageModules);
-    }
-
-    session.projectNext = page.next;
-    session.projectNextCursor = page.nextCursor;
-    session.projectResolvedPath = page.resolvedPath || session.projectResolvedPath;
-
-    if (!session.projectNext && !session.projectNextCursor) {
-      session.projectIndex += 1;
-      session.projectNext = null;
-      session.projectNextCursor = null;
-      session.projectResolvedPath = null;
-    }
-  }
-
-  const hasMore =
-    session.buffered.length > 0 ||
-    session.projectIndex < session.projectRows.length ||
-    !!session.projectNext ||
-    !!session.projectNextCursor;
-
-  if (!hasMore) {
-    moduleBrowseSessions.delete(session.id);
-  } else {
-    session.expiresAt = Date.now() + MODULE_BROWSE_SESSION_TTL_MS;
-  }
+  const nextCursor = String(page.nextCursor || extractPlaneCursor(page.next) || "").trim() || null;
 
   return {
     modules,
-    nextCursor: hasMore ? session.id : null,
-    hasMore,
+    nextCursor,
+    hasMore: Boolean(nextCursor),
   };
-}
-
-/** @returns {Promise<Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>>} */
-export async function fetchPlaneModules(forceRefresh = false) {
-  const cacheTtl = getModuleCacheTtlMs();
-  const cacheAge = Date.now() - moduleListCache.fetchedAt;
-  const cacheValid = moduleListCache.modules.length > 0 && cacheAge >= 0 && cacheAge <= cacheTtl;
-  if (!forceRefresh && cacheValid) {
-    return [...moduleListCache.modules];
-  }
-
-  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
-  const projectBase = `/api/v1/workspaces/${workspaceSlug}/projects`;
-
-  const projects = await fetchAllPlanePages([`${projectBase}/`, `${projectBase}`]);
-
-  let projectRows = projects
-    .map((project) => ({
-      projectId: String(project.id || ""),
-      projectName: String(project.name || ""),
-      projectIdentifier: String(project.identifier || ""),
-    }))
-    .filter((project) => project.projectId && project.projectName);
-
-  if (scopedProjectIds.length > 0) {
-    const scoped = new Set(scopedProjectIds);
-    projectRows = projectRows.filter((project) => scoped.has(project.projectId));
-  }
-
-  /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */
-  const moduleRows = [];
-
-  for (const project of projectRows) {
-    let modules = [];
-    try {
-      modules = await fetchAllPlanePages([
-        `${projectBase}/${project.projectId}/modules/`,
-        `${projectBase}/${project.projectId}/modules`,
-      ]);
-    } catch (error) {
-      if (error instanceof PlaneApiError && error.status === 403) {
-        console.warn(
-          `[test-staging] Skipping project ${project.projectId} (${project.projectName}) while listing modules: 403 Forbidden`
-        );
-        continue;
-      }
-
-      if (error instanceof PlaneApiError && error.status === 429) {
-        if (moduleRows.length > 0) {
-          console.warn(
-            `[test-staging] Plane rate-limited module listing. Returning partial modules (${moduleRows.length}) collected before 429.`
-          );
-          break;
-        }
-        if (moduleListCache.modules.length > 0) {
-          console.warn("[test-staging] Plane rate-limited module listing. Returning stale cached modules.");
-          return [...moduleListCache.modules];
-        }
-
-        throw new Error(
-          "Plane API rate limit hit while loading modules (429). Retry shortly, limit projects via PLANE_TEST_STAGING_PROJECT_IDS, or use cached modules."
-        );
-      }
-
-      throw error;
-    }
-
-    moduleRows.push(
-      ...modules
-        .map((module) => normalizeModuleRecord({
-          projectId: project.projectId,
-          projectName: project.projectName,
-          projectIdentifier: project.projectIdentifier,
-          moduleId: String(module.id || ""),
-          moduleName: String(module.name || module.title || ""),
-        }))
-        .filter(Boolean)
-    );
-  }
-
-  const sorted = moduleRows.sort((a, b) => `${a.projectName}/${a.moduleName}`.localeCompare(`${b.projectName}/${b.moduleName}`));
-
-  if (sorted.length > 0) {
-    moduleListCache.fetchedAt = Date.now();
-    moduleListCache.modules = sorted;
-    setTestStagingModuleCache(sorted);
-  }
-
-  return sorted;
 }
 
 /**

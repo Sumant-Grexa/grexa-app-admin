@@ -35,3 +35,7 @@ export async function getTestStagingPlaneRequests(limit = 120) {
   if (Number.isFinite(limit) && limit > 0) query.set("limit", String(limit));
   return api("GET", `/api/test-staging/plane-requests${query.toString() ? `?${query.toString()}` : ""}`);
 }
+
+export async function clearTestStagingPlaneRequests() {
+  return api("DELETE", "/api/test-staging/plane-requests");
+}

@@ -7,6 +7,7 @@ import {
   startTestStaging,
   getTestStagingLog,
   getTestStagingPlaneRequests,
+  clearTestStagingPlaneRequests,
 } from "../controllers/testStagingController.js";
 
 const router = Router();
@@ -18,5 +19,6 @@ router.post("/test-staging/selected-module", setTestStagingSelectedModule);
 router.post("/test-staging/start", startTestStaging);
 router.get("/test-staging/log", getTestStagingLog);
 router.get("/test-staging/plane-requests", getTestStagingPlaneRequests);
+router.delete("/test-staging/plane-requests", clearTestStagingPlaneRequests);
 
 export default router;
