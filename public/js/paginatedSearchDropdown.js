@@ -12,6 +12,7 @@ export function createPaginatedSearchDropdown(config) {
     loadPage,
     getItemKey,
     getItemLabel,
+    getItemTitle = null,
     getSelectedKey = () => "",
     onSelect = async () => {},
     onError = () => {},
@@ -107,7 +108,13 @@ export function createPaginatedSearchDropdown(config) {
       const option = document.createElement("div");
       option.className = `branch-option${selectedKey === key ? " selected" : ""}`;
       option.dataset.optionKey = key;
-      option.textContent = String(getItemLabel(item) || "");
+      const label = String(getItemLabel(item) || "");
+      option.textContent = label;
+      if (typeof getItemTitle === "function") {
+        option.title = String(getItemTitle(item) || label);
+      } else {
+        option.title = label;
+      }
       optionsEl.appendChild(option);
     }
 

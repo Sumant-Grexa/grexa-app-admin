@@ -6,6 +6,8 @@ import { getEnvs } from "../config/environments.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
 const MODULE_BROWSE_SESSION_TTL_MS = 10 * 60 * 1000;
+const MODULES_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_MODULES_CACHE_ENTRIES = 5000;
 const DEFAULT_PLANE_REQUEST_GAP_MS = 250;
 const DEFAULT_PLANE_MAX_429_RETRIES = 3;
 const DEFAULT_PLANE_429_BACKOFF_MS = 1000;
@@ -24,6 +26,8 @@ export const testStagingState = {
 const planeResolvedPathCache = new Map();
 /** @type {Map<string, { id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, expiresAt: number }>} */
 const moduleBrowseSessions = new Map();
+/** @type {Map<string, { expiresAt: number, payload: any }>} */
+const modulesPlaneResponseCache = new Map();
 /** @type {Promise<unknown>} */
 let planeRequestChain = Promise.resolve();
 let lastPlaneRequestAt = 0;
@@ -189,6 +193,46 @@ function logGrexaPlane(event, payload) {
 }
 
 /**
+ * Caches only module-list endpoints used by Test Staging dropdown:
+ * - /api/v1/workspaces/{slug}/modules
+ * - /api/v1/workspaces/{slug}/projects/{projectId}/modules
+ * and their query variants (cursor/search).
+ *
+ * @param {URL} url
+ * @returns {boolean}
+ */
+function isModuleListEndpoint(url) {
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length === 5) {
+    return parts[0] === "api" && parts[1] === "v1" && parts[2] === "workspaces" && parts[4] === "modules";
+  }
+  if (parts.length === 7) {
+    return (
+      parts[0] === "api" &&
+      parts[1] === "v1" &&
+      parts[2] === "workspaces" &&
+      parts[4] === "projects" &&
+      parts[6] === "modules"
+    );
+  }
+  return false;
+}
+
+function pruneModulesPlaneResponseCache() {
+  const now = Date.now();
+  for (const [key, value] of modulesPlaneResponseCache.entries()) {
+    if (!value || value.expiresAt <= now) {
+      modulesPlaneResponseCache.delete(key);
+    }
+  }
+  while (modulesPlaneResponseCache.size > MAX_MODULES_CACHE_ENTRIES) {
+    const oldestKey = modulesPlaneResponseCache.keys().next().value;
+    if (!oldestKey) break;
+    modulesPlaneResponseCache.delete(oldestKey);
+  }
+}
+
+/**
  * @param {number} [limit]
  * @returns {Array<{ timestamp: string, url: string, path: string, status: number, statusText: string, durationMs: number, attempt: number, retryAfterMs: number | null }>}
  */
@@ -261,6 +305,20 @@ function buildPlaneUrl(path, options = {}) {
  */
 async function doPlaneFetch(url) {
   const run = async () => {
+    const moduleListRequest = isModuleListEndpoint(url);
+    const cacheKey = url.toString();
+    if (moduleListRequest) {
+      pruneModulesPlaneResponseCache();
+      const cached = modulesPlaneResponseCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        logGrexaPlane("CACHE_HIT", {
+          endpoint: cacheKey,
+          expiresAt: new Date(cached.expiresAt).toISOString(),
+        });
+        return cached.payload;
+      }
+    }
+
     const { apiKey } = getPlaneConfig();
     const max429Retries = getPlaneMax429Retries();
     const baseBackoffMs = getPlane429BackoffMs();
@@ -351,6 +409,18 @@ async function doPlaneFetch(url) {
           parsed,
           { url: url.toString(), attempt, retryAfterMs }
         );
+      }
+
+      if (moduleListRequest) {
+        modulesPlaneResponseCache.set(cacheKey, {
+          expiresAt: Date.now() + MODULES_CACHE_TTL_MS,
+          payload: parsed,
+        });
+        pruneModulesPlaneResponseCache();
+        logGrexaPlane("CACHE_STORE", {
+          endpoint: cacheKey,
+          ttlMs: MODULES_CACHE_TTL_MS,
+        });
       }
 
       return parsed;
@@ -829,25 +899,6 @@ export async function fetchPlaneModulesPage(input = {}) {
     nextCursor: hasMore ? session.id : null,
     hasMore,
   };
-}
-
-/**
- * @param {string} projectId
- * @returns {Promise<Array<{ id: string, name: string, color?: string }>>}
- */
-export async function fetchPlaneStates(projectId) {
-  const { workspaceSlug } = getPlaneConfig();
-  const base = `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/states`;
-
-  const states = await fetchAllPlanePages([`${base}/`, `${base}`]);
-  return states
-    .map((state) => ({
-      id: String(state.id || ""),
-      name: String(state.name || ""),
-      color: typeof state.color === "string" ? state.color : undefined,
-    }))
-    .filter((state) => state.id && state.name)
-    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

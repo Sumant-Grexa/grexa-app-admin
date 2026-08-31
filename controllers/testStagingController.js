@@ -1,9 +1,6 @@
 import { getEnvs } from "../config/environments.js";
 import {
-  clearPlaneRequestDebugLog,
   fetchPlaneModulesPage,
-  fetchPlaneStates,
-  getPlaneRequestDebugLog,
   startTestStagingRun,
   testStagingState,
 } from "../services/testStagingService.js";
@@ -23,25 +20,6 @@ export async function getTestStagingModules(_req, res) {
     if (error instanceof Error && error.code === "INVALID_CURSOR") {
       return res.status(400).json({ error: error.message });
     }
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-}
-
-/**
- * GET /api/test-staging/states?projectId=...
- * @param {import("express").Request} req
- * @param {import("express").Response} res
- */
-export async function getTestStagingStates(req, res) {
-  const projectId = String(req.query.projectId || "").trim();
-  if (!projectId) {
-    return res.status(400).json({ error: "projectId is required" });
-  }
-
-  try {
-    const states = await fetchPlaneStates(projectId);
-    res.json({ states });
-  } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -109,27 +87,4 @@ export function getTestStagingLog(_req, res) {
     finishedAt: testStagingState.finishedAt,
     meta: testStagingState.meta,
   });
-}
-
-/**
- * GET /api/test-staging/plane-requests
- * @param {import("express").Request} req
- * @param {import("express").Response} res
- */
-export function getTestStagingPlaneRequests(req, res) {
-  const parsedLimit = Number.parseInt(String(req.query?.limit || ""), 10);
-  const limit = Number.isFinite(parsedLimit) ? parsedLimit : 200;
-  return res.json({
-    events: getPlaneRequestDebugLog(limit),
-  });
-}
-
-/**
- * DELETE /api/test-staging/plane-requests
- * @param {import("express").Request} _req
- * @param {import("express").Response} res
- */
-export function clearTestStagingPlaneRequests(_req, res) {
-  clearPlaneRequestDebugLog();
-  return res.json({ ok: true });
 }

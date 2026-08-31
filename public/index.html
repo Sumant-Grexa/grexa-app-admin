@@ -332,7 +332,7 @@
 
   <!-- Test Staging Modal -->
   <div id="test-staging-modal" class="modal-overlay hidden">
-    <div class="modal-box">
+    <div class="modal-box modal-box-test-staging">
       <div class="modal-header">
         <span class="modal-title">Test Staging <span id="ts-status-badge" class="deploy-badge idle">IDLE</span></span>
         <button class="modal-close" id="test-staging-close">&times;</button>
@@ -385,10 +385,8 @@
                 <div class="dropdown-options" id="ts-status-options"></div>
               </div>
             </div>
-            <span class="field-hint">Status options are fetched from Plane states API. You can select multiple statuses.</span>
+            <span class="field-hint">Status options are fixed. You can select multiple statuses.</span>
           </div>
-
-          <span class="field-hint">Debug: inspect <code>/api/test-staging/plane-requests</code> in Network tab to see exact Plane API URLs and response codes.</span>
 
           <p id="ts-error" class="error-msg hidden"></p>
         </div>

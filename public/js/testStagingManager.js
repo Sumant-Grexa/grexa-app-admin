@@ -1,8 +1,6 @@
 import { api } from "./api.js";
 import {
-  clearTestStagingPlaneRequests,
   getTestStagingModules,
-  getTestStagingStates,
   startTestStaging,
   getTestStagingLog,
 } from "./testStagingApi.js";
@@ -18,6 +16,24 @@ let statusOptions = [];
 const selectedStatusIds = new Set();
 let moduleSelectionEnabled = false;
 let moduleDropdownCtrl = null;
+const MODULE_SEARCH_DEBOUNCE_MS = 700;
+
+const HARDCODED_STATUS_OPTIONS = [
+  { id: "f0570f88-ddfa-45eb-9edd-ebd5ef3ae0a4", name: "Backlog" },
+  { id: "bf150ce1-34dd-4227-ba8c-cdcf89b1e9b0", name: "To be picked" },
+  { id: "fd8be535-f04a-4062-8603-49a5c6024049", name: "In Progress" },
+  { id: "170c7c7d-472b-4c66-a06e-54ab6161ea83", name: "Dev Ready" },
+  { id: "2debaa2a-2a34-429b-8890-aa9bfeff1c33", name: "In Review" },
+  { id: "6f051edc-384d-4722-92fd-52277ad4dd7f", name: "Merged/Ready for QA" },
+  { id: "961a04bf-ac68-42e7-b7c9-f69c179d2260", name: "In Testing" },
+  { id: "c26f2115-fe92-4b74-b0f5-6ca37cd7cdf0", name: "Bugs Reported" },
+  { id: "847b1f60-bcd3-4ae7-8480-3df8416e6e87", name: "Under Iterations" },
+  { id: "f9a92f80-f4e8-41b1-9198-346d40e3e856", name: "Pending Release/GTG" },
+  { id: "9944a732-e924-409a-9bf2-640d0806b3c8", name: "Live" },
+  { id: "3f4d92d9-89cc-40bd-aff1-17a94d90a52a", name: "Dropped" },
+  { id: "e4c5d0ff-ead5-4275-b900-db6408d3c053", name: "Pick Later" },
+  { id: "0be5a31d-5546-4f29-8a97-f65696842b75", name: "Blocked" },
+];
 
 function getModuleKey(module) {
   return `${String(module?.projectId || "").trim()}::${String(module?.moduleId || "").trim()}`;
@@ -105,13 +121,15 @@ function updateModuleDisplay() {
   if (!display) return;
 
   if (!selectedModule) {
+    display.title = "";
     if (moduleDropdownCtrl?.isLoading()) display.textContent = "Loading modules...";
     else if ((moduleDropdownCtrl?.getItemCount() || 0) > 0) display.textContent = "Select module";
     else display.textContent = "No module selected";
     return;
   }
 
-  display.textContent = `${selectedModule.projectName} / ${selectedModule.moduleName}`;
+  display.textContent = selectedModule.moduleName;
+  display.title = `${selectedModule.moduleName}${selectedModule.projectName ? ` (${selectedModule.projectName})` : ""}`;
 }
 
 function updateStatusDisplay() {
@@ -148,6 +166,7 @@ function renderStatusOptions(query = "") {
   allOption.className = `branch-option${selectedStatusIds.size === 0 ? " selected" : ""}`;
   allOption.dataset.clearAll = "1";
   allOption.textContent = "All statuses";
+  allOption.title = "All statuses";
   optionsEl.appendChild(allOption);
 
   if (filtered.length === 0) {
@@ -164,6 +183,7 @@ function renderStatusOptions(query = "") {
     option.className = `branch-option${selected ? " selected" : ""}`;
     option.dataset.statusId = status.id;
     option.textContent = `${selected ? "✓ " : ""}${status.name}`;
+    option.title = status.name;
     optionsEl.appendChild(option);
   }
 }
@@ -185,7 +205,7 @@ async function loadEnvOptions() {
   }
 }
 
-async function loadStates(projectId) {
+async function loadStates() {
   const trigger = document.getElementById("ts-status-trigger");
   const search = document.getElementById("ts-status-search");
 
@@ -194,12 +214,7 @@ async function loadStates(projectId) {
   updateStatusDisplay();
   renderStatusOptions();
 
-  if (trigger) trigger.disabled = true;
-
-  if (!projectId) return;
-
-  const { states } = await getTestStagingStates(projectId);
-  statusOptions = (states || []).map((state) => ({ id: state.id, name: state.name }));
+  statusOptions = HARDCODED_STATUS_OPTIONS.map((status) => ({ ...status }));
 
   if (search) search.value = "";
   updateStatusDisplay();
@@ -250,7 +265,6 @@ async function refreshExistingRunState() {
 function closeTestStagingModal(modal) {
   closeAllDropdowns();
   modal?.classList.add("hidden");
-  void clearTestStagingPlaneRequests().catch(() => {});
 }
 
 function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
@@ -258,14 +272,16 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
     dropdownEl: moduleDropdown,
     searchInputEl: moduleSearch,
     optionsEl: moduleOptionsEl,
-    debounceMs: 250,
+    debounceMs: MODULE_SEARCH_DEBOUNCE_MS,
     scrollThresholdPx: 24,
     emptyText: "No modules found",
     loadingText: "Loading modules...",
     loadMoreText: "Load more modules",
     loadingMoreText: "Loading more modules...",
     getItemKey: (module) => getModuleKey(module),
-    getItemLabel: (module) => `${module.projectName} / ${module.moduleName}`,
+    getItemLabel: (module) => module.moduleName,
+    getItemTitle: (module) =>
+      `${module.moduleName}${module.projectName ? ` (${module.projectName})` : ""}`,
     getSelectedKey: () => getModuleKey(selectedModule),
     loadPage: async ({ search, cursor }) => {
       const response = await getTestStagingModules({ search, cursor });
@@ -284,10 +300,8 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
       setModuleHint("Module selected. Click Change to switch.");
 
       try {
-        await loadStates(selectedModule?.projectId || "");
-      } catch (error) {
-        showTsError(error instanceof Error ? error.message : "Failed to load statuses from Plane");
-      }
+        await loadStates();
+      } catch {}
     },
     onError: (error) => {
       showTsError(error instanceof Error ? error.message : "Failed to load modules");
@@ -416,7 +430,7 @@ export function initTestStagingManager() {
       moduleDropdownCtrl?.clearSearch();
       updateModuleDisplay();
       moduleDropdownCtrl?.render();
-      await loadStates("");
+      await loadStates();
       await refreshExistingRunState();
     } catch (error) {
       showTsError(error instanceof Error ? error.message : "Failed to load Test Staging options");

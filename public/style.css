@@ -856,6 +856,10 @@ main {
   max-width: calc(100vw - 32px);
 }
 
+.modal-box-test-staging {
+  width: min(1180px, calc(100vw - 32px));
+}
+
 .env-vars-tabs {
   display: flex;
   gap: 4px;
