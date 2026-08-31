@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 
-export async function getTestStagingModules({ search = "", cursor = "", limit = 25 } = {}) {
+export async function getTestStagingModules({ search = "", cursor = "", limit = 50 } = {}) {
   const query = new URLSearchParams();
   if (search) query.set("search", search);
   if (cursor) query.set("cursor", cursor);

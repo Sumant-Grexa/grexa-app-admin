@@ -37,6 +37,8 @@ const projectListCache = {
 };
 /** @type {Map<string, { id: string, search: string, projectRows: Array<{ projectId: string, projectName: string, projectIdentifier: string }>, projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }>} */
 const moduleBrowseSessions = new Map();
+/** @type {Map<string, string>} */
+const planeResolvedPathCache = new Map();
 let selectedModuleCache = persistedCache.selectedModule || null;
 /** @type {Promise<unknown>} */
 let planeRequestChain = Promise.resolve();
@@ -339,11 +341,17 @@ async function doPlaneFetch(url) {
 async function requestPlaneWithFallback(paths, options = {}) {
   /** @type {Array<string>} */
   const failures = [];
+  const cacheKey = paths.join("|");
+  const preferredPath = planeResolvedPathCache.get(cacheKey);
+  const orderedPaths = preferredPath
+    ? [preferredPath, ...paths.filter((path) => path !== preferredPath)]
+    : paths;
 
-  for (const path of paths) {
+  for (const path of orderedPaths) {
     try {
       const url = buildPlaneUrl(path, options);
       const payload = await doPlaneFetch(url);
+      planeResolvedPathCache.set(cacheKey, path);
       return { payload, resolvedPath: path };
     } catch (error) {
       if (error instanceof PlaneApiError && (error.status === 404 || error.status === 405)) {

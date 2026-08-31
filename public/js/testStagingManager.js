@@ -22,7 +22,7 @@ let moduleSelectionEnabled = false;
 let moduleDropdownCtrl = null;
 let planeDebugPollTimer = null;
 
-const MODULE_PAGE_LIMIT = 25;
+const MODULE_PAGE_LIMIT = 50;
 
 function getModuleKey(module) {
   return `${String(module?.projectId || "").trim()}::${String(module?.moduleId || "").trim()}`;
