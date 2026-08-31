@@ -296,6 +296,10 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
       hideTsError();
       const response = await saveTestStagingSelectedModule(picked);
       selectedModule = response?.selectedModule || picked;
+      const manualModuleIdInput = document.getElementById("ts-module-id-input");
+      if (manualModuleIdInput) {
+        manualModuleIdInput.value = String(selectedModule?.moduleId || "");
+      }
 
       updateModuleDisplay();
       setModuleSelectionEnabled(false);
@@ -324,6 +328,7 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
 export function initTestStagingManager() {
   const modal = document.getElementById("test-staging-modal");
   const form = document.getElementById("test-staging-form");
+  const manualModuleIdInput = document.getElementById("ts-module-id-input");
 
   const moduleTrigger = document.getElementById("ts-module-trigger");
   const moduleDropdown = document.getElementById("ts-module-dropdown");
@@ -419,6 +424,9 @@ export function initTestStagingManager() {
     try {
       await loadEnvOptions();
       await loadPreferences();
+      if (manualModuleIdInput) {
+        manualModuleIdInput.value = String(selectedModule?.moduleId || "");
+      }
 
       if (!selectedModule) {
         moduleDropdownCtrl?.clearSearch();
@@ -457,11 +465,11 @@ export function initTestStagingManager() {
     hideTsError();
 
     const envId = String(document.getElementById("ts-env-select")?.value || "").trim();
-    const moduleId = String(selectedModule?.moduleId || "").trim();
+    const moduleId = String(manualModuleIdInput?.value || "").trim() || String(selectedModule?.moduleId || "").trim();
     const projectId = String(selectedModule?.projectId || "").trim();
 
     if (!envId) return showTsError("Environment is required");
-    if (!moduleId || !projectId) return showTsError("Module is required. Click Change and select one module.");
+    if (!moduleId) return showTsError("Module ID is required. Enter Module ID or select a module.");
 
     setStatusBadge("running");
     setSubmitRunning(true);

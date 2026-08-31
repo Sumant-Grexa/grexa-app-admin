@@ -81,7 +81,7 @@ export async function getTestStagingStates(req, res) {
 
 /**
  * POST /api/test-staging/start
- * Body: { envId: string, projectId: string, moduleId: string, statusId?: string, statusIds?: string[] }
+ * Body: { envId: string, projectId?: string, moduleId: string, statusId?: string, statusIds?: string[] }
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  */
@@ -99,13 +99,27 @@ export function startTestStaging(req, res) {
   if (!projectId || !moduleId) {
     const selectedModule = getSelectedTestStagingModule();
     if (selectedModule) {
-      projectId = selectedModule.projectId;
-      moduleId = selectedModule.moduleId;
+      if (!projectId) projectId = selectedModule.projectId;
+      if (!moduleId) moduleId = selectedModule.moduleId;
+    }
+  }
+
+  if (!projectId) {
+    const scopedProjectIds = String(process.env.PLANE_TEST_STAGING_PROJECT_IDS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (scopedProjectIds.length === 1) {
+      projectId = scopedProjectIds[0];
     }
   }
 
   if (!envId) return res.status(400).json({ error: "envId is required" });
-  if (!projectId) return res.status(400).json({ error: "projectId is required" });
+  if (!projectId) {
+    return res.status(400).json({
+      error: "projectId is required. Select a module once, or configure exactly one PLANE_TEST_STAGING_PROJECT_IDS value.",
+    });
+  }
   if (!moduleId) return res.status(400).json({ error: "moduleId is required" });
 
   const env = getEnvs()[envId];
