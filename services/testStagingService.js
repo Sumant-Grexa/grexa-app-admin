@@ -1,5 +1,7 @@
 import simpleGit from "simple-git";
 import { randomUUID } from "crypto";
+import { appendFileSync, mkdirSync } from "fs";
+import { dirname, isAbsolute, join } from "path";
 import { getEnvs } from "../config/environments.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
@@ -27,6 +29,7 @@ let planeRequestChain = Promise.resolve();
 let lastPlaneRequestAt = 0;
 /** @type {Array<{ timestamp: string, url: string, path: string, status: number, statusText: string, durationMs: number, attempt: number, retryAfterMs: number | null }>} */
 const planeRequestDebugEvents = [];
+let grexaPlaneLogFileReady = false;
 
 class PlaneApiError extends Error {
   /**
@@ -143,6 +146,49 @@ function pushPlaneDebugEvent(event) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatGrexaPlaneLog(value) {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== "string") return String(value);
+    return text;
+  } catch {
+    return String(value);
+  }
+}
+
+/** @returns {string} */
+function getGrexaPlaneLogFilePath() {
+  const configured = String(process.env.GREXA_PLANE_LOG_FILE || "").trim();
+  const relativeOrAbsolute = configured || "logs/grexa-plane.log";
+  return isAbsolute(relativeOrAbsolute) ? relativeOrAbsolute : join(process.cwd(), relativeOrAbsolute);
+}
+
+function ensureGrexaPlaneLogFileReady() {
+  if (grexaPlaneLogFileReady) return;
+  const filePath = getGrexaPlaneLogFilePath();
+  mkdirSync(dirname(filePath), { recursive: true });
+  grexaPlaneLogFileReady = true;
+}
+
+/**
+ * @param {string} event
+ * @param {unknown} payload
+ */
+function logGrexaPlane(event, payload) {
+  try {
+    ensureGrexaPlaneLogFileReady();
+    const filePath = getGrexaPlaneLogFilePath();
+    const line = `${new Date().toISOString()} [GREXA_PLANE] ${event} ${formatGrexaPlaneLog(payload)}\n`;
+    appendFileSync(filePath, line, "utf8");
+  } catch (error) {
+    console.error("[GREXA_PLANE] LOG_WRITE_ERROR", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
  * @param {number} [limit]
  * @returns {Array<{ timestamp: string, url: string, path: string, status: number, statusText: string, durationMs: number, attempt: number, retryAfterMs: number | null }>}
  */
@@ -219,6 +265,7 @@ async function doPlaneFetch(url) {
     const max429Retries = getPlaneMax429Retries();
     const baseBackoffMs = getPlane429BackoffMs();
     const timeoutMs = getPlaneRequestTimeoutMs();
+    const requestHeaders = buildPlaneHeaders(apiKey);
 
     for (let attempt = 1; attempt <= max429Retries + 1; attempt += 1) {
       const gapMs = getPlaneRequestGapMs();
@@ -227,6 +274,14 @@ async function doPlaneFetch(url) {
         await sleep(waitForGap);
       }
 
+      logGrexaPlane("REQUEST", {
+        attempt,
+        method: "GET",
+        endpoint: url.toString(),
+        headers: requestHeaders,
+        payload: null,
+      });
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const startedAt = Date.now();
@@ -234,10 +289,17 @@ async function doPlaneFetch(url) {
       try {
         res = await fetch(url, {
           method: "GET",
-          headers: buildPlaneHeaders(apiKey),
+          headers: requestHeaders,
           signal: controller.signal,
         });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logGrexaPlane("FETCH_ERROR", {
+          attempt,
+          endpoint: url.toString(),
+          timeoutMs,
+          error: message,
+        });
         if (error && typeof error === "object" && error.name === "AbortError") {
           throw new Error(`Plane API request timed out after ${timeoutMs}ms for ${url.pathname}`);
         }
@@ -255,6 +317,14 @@ async function doPlaneFetch(url) {
       } catch {
         parsed = text;
       }
+
+      logGrexaPlane("RESPONSE", {
+        attempt,
+        endpoint: url.toString(),
+        status: res.status,
+        statusText: res.statusText,
+        response: parsed,
+      });
 
       const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
       pushPlaneDebugEvent({
