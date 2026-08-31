@@ -17,9 +17,7 @@ export async function getTestStagingModules(_req, res) {
   try {
     const cursor = String(_req.query?.cursor || "").trim();
     const search = String(_req.query?.search || "").trim();
-    const parsedLimit = Number.parseInt(String(_req.query?.limit || ""), 10);
-    const limit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
-    const page = await fetchPlaneModulesPage({ cursor, search, limit });
+    const page = await fetchPlaneModulesPage({ cursor, search });
     res.json(page);
   } catch (error) {
     if (error instanceof Error && error.code === "INVALID_CURSOR") {

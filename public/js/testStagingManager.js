@@ -19,8 +19,6 @@ const selectedStatusIds = new Set();
 let moduleSelectionEnabled = false;
 let moduleDropdownCtrl = null;
 
-const MODULE_PAGE_LIMIT = 50;
-
 function getModuleKey(module) {
   return `${String(module?.projectId || "").trim()}::${String(module?.moduleId || "").trim()}`;
 }
@@ -260,7 +258,6 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
     dropdownEl: moduleDropdown,
     searchInputEl: moduleSearch,
     optionsEl: moduleOptionsEl,
-    limit: MODULE_PAGE_LIMIT,
     debounceMs: 250,
     scrollThresholdPx: 24,
     emptyText: "No modules found",
@@ -270,8 +267,8 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
     getItemKey: (module) => getModuleKey(module),
     getItemLabel: (module) => `${module.projectName} / ${module.moduleName}`,
     getSelectedKey: () => getModuleKey(selectedModule),
-    loadPage: async ({ search, cursor, limit }) => {
-      const response = await getTestStagingModules({ search, cursor, limit });
+    loadPage: async ({ search, cursor }) => {
+      const response = await getTestStagingModules({ search, cursor });
       return {
         items: Array.isArray(response?.modules) ? response.modules : [],
         nextCursor: response?.nextCursor || null,

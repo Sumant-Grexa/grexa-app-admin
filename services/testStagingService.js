@@ -3,12 +3,11 @@ import { randomUUID } from "crypto";
 import { getEnvs } from "../config/environments.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
-const DEFAULT_MODULE_PAGE_SIZE = 25;
-const MAX_MODULE_PAGE_SIZE = 100;
 const MODULE_BROWSE_SESSION_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_PLANE_REQUEST_GAP_MS = 250;
 const DEFAULT_PLANE_MAX_429_RETRIES = 3;
 const DEFAULT_PLANE_429_BACKOFF_MS = 1000;
+const DEFAULT_PLANE_REQUEST_TIMEOUT_MS = 20000;
 const MAX_PLANE_DEBUG_EVENTS = 400;
 
 export const testStagingState = {
@@ -21,7 +20,7 @@ export const testStagingState = {
 
 /** @type {Map<string, string>} */
 const planeResolvedPathCache = new Map();
-/** @type {Map<string, { id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }>} */
+/** @type {Map<string, { id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, expiresAt: number }>} */
 const moduleBrowseSessions = new Map();
 /** @type {Promise<unknown>} */
 let planeRequestChain = Promise.resolve();
@@ -95,6 +94,13 @@ function getPlane429BackoffMs() {
   const raw = Number.parseInt(String(process.env.PLANE_429_BACKOFF_MS || ""), 10);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return DEFAULT_PLANE_429_BACKOFF_MS;
+}
+
+/** @returns {number} */
+function getPlaneRequestTimeoutMs() {
+  const raw = Number.parseInt(String(process.env.PLANE_REQUEST_TIMEOUT_MS || ""), 10);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return DEFAULT_PLANE_REQUEST_TIMEOUT_MS;
 }
 
 /**
@@ -212,6 +218,7 @@ async function doPlaneFetch(url) {
     const { apiKey } = getPlaneConfig();
     const max429Retries = getPlaneMax429Retries();
     const baseBackoffMs = getPlane429BackoffMs();
+    const timeoutMs = getPlaneRequestTimeoutMs();
 
     for (let attempt = 1; attempt <= max429Retries + 1; attempt += 1) {
       const gapMs = getPlaneRequestGapMs();
@@ -220,11 +227,24 @@ async function doPlaneFetch(url) {
         await sleep(waitForGap);
       }
 
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const startedAt = Date.now();
-      const res = await fetch(url, {
-        method: "GET",
-        headers: buildPlaneHeaders(apiKey),
-      });
+      let res;
+      try {
+        res = await fetch(url, {
+          method: "GET",
+          headers: buildPlaneHeaders(apiKey),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error && typeof error === "object" && error.name === "AbortError") {
+          throw new Error(`Plane API request timed out after ${timeoutMs}ms for ${url.pathname}`);
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
       const finishedAt = Date.now();
       lastPlaneRequestAt = finishedAt;
 
@@ -460,40 +480,6 @@ function normalizePlaneModuleRecord(module, fallback = {}) {
 }
 
 /**
- * @param {{ limit: number, search: string, cursor: string }} input
- * @returns {Promise<{ modules: Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>, nextCursor: string | null, hasMore: boolean }>}
- */
-async function fetchWorkspaceModulesPage(input) {
-  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
-  const query = { limit: input.limit };
-  if (input.cursor) query.cursor = input.cursor;
-  if (input.search) query.search = input.search;
-
-  const payload = await doPlaneFetch(
-    buildPlaneUrl(`/api/v1/workspaces/${workspaceSlug}/modules/`, {
-      query,
-    })
-  );
-
-  const page = normalizePaginatedPayload(payload);
-  const scopedProjectSet = scopedProjectIds.length > 0 ? new Set(scopedProjectIds) : null;
-  const modules = page.items
-    .map((module) => normalizePlaneModuleRecord(module))
-    .filter(Boolean)
-    .filter((module) => {
-      if (!scopedProjectSet) return true;
-      return scopedProjectSet.has(module.projectId);
-    });
-
-  const nextCursor = String(page.nextCursor || extractPlaneCursor(page.next) || "").trim() || null;
-  return {
-    modules,
-    nextCursor,
-    hasMore: Boolean(nextCursor),
-  };
-}
-
-/**
  * @param {string} projectId
  * @param {{ projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, search: string }} session
  * @returns {Promise<{ items: any[], next: string | null, nextCursor: string | null, resolvedPath: string | null }>}
@@ -663,43 +649,22 @@ function getInlineIssueLinks(issue) {
 }
 
 /**
- * @param {{ cursor?: string, search?: string, limit?: number, forceRefresh?: boolean }} [input]
+ * @param {{ cursor?: string, search?: string }} [input]
  * @returns {Promise<{ modules: Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>, nextCursor: string | null, hasMore: boolean }>}
  */
 export async function fetchPlaneModulesPage(input = {}) {
   const cursor = String(input.cursor || "").trim();
   const search = normalizeModuleSearch(input.search || "");
   const searchLower = search.toLowerCase();
-  const rawLimit = Number.parseInt(String(input.limit ?? DEFAULT_MODULE_PAGE_SIZE), 10);
-  const limit = Number.isFinite(rawLimit)
-    ? Math.min(MAX_MODULE_PAGE_SIZE, Math.max(1, rawLimit))
-    : DEFAULT_MODULE_PAGE_SIZE;
 
   pruneModuleBrowseSessions();
 
-  try {
-    return await fetchWorkspaceModulesPage({
-      limit,
-      search,
-      cursor,
-    });
-  } catch (error) {
-    if (error instanceof PlaneApiError && error.status === 429) {
-      throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
-    }
-    if (!(error instanceof PlaneApiError) || (error.status !== 404 && error.status !== 405)) {
-      throw error;
-    }
-  }
-
   const { scopedProjectIds } = getPlaneConfig();
   if (scopedProjectIds.length === 0) {
-    throw new Error(
-      "Plane workspace modules endpoint is unavailable (404). Configure PLANE_TEST_STAGING_PROJECT_IDS to enable project-scoped module pagination."
-    );
+    throw new Error("PLANE_TEST_STAGING_PROJECT_IDS is required for module dropdown.");
   }
 
-  /** @type {{ id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }} */
+  /** @type {{ id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, expiresAt: number }} */
   let session;
 
   if (!cursor) {
@@ -711,7 +676,6 @@ export async function fetchPlaneModulesPage(input = {}) {
       projectNext: null,
       projectNextCursor: null,
       projectResolvedPath: null,
-      buffered: [],
       expiresAt: Date.now() + MODULE_BROWSE_SESSION_TTL_MS,
     };
     moduleBrowseSessions.set(session.id, session);
@@ -727,63 +691,59 @@ export async function fetchPlaneModulesPage(input = {}) {
     session = existing;
   }
 
-  /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */
-  const modules = [];
+  if (session.projectIndex >= session.projectIds.length) {
+    moduleBrowseSessions.delete(session.id);
+    return { modules: [], nextCursor: null, hasMore: false };
+  }
 
-  while (modules.length < limit) {
-    if (session.buffered.length > 0) {
-      const bufferedItem = session.buffered.shift();
-      if (bufferedItem) modules.push(bufferedItem);
-      continue;
-    }
-
-    if (session.projectIndex >= session.projectIds.length) break;
-    const projectId = session.projectIds[session.projectIndex];
-
-    let page;
-    try {
-      page = await fetchScopedProjectModulesPage(projectId, session);
-    } catch (error) {
-      if (error instanceof PlaneApiError && error.status === 403) {
-        session.projectIndex += 1;
-        session.projectNext = null;
-        session.projectNextCursor = null;
-        session.projectResolvedPath = null;
-        continue;
-      }
-      if (error instanceof PlaneApiError && error.status === 429) {
-        throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
-      }
-      throw error;
-    }
-
-    const pageModules = page.items
-      .map((module) =>
-        normalizePlaneModuleRecord(module, {
-          projectId,
-          projectName: projectId,
-          projectIdentifier: "",
-        })
-      )
-      .filter(Boolean)
-      .filter((module) => moduleMatchesSearch(module, searchLower));
-
-    if (pageModules.length > 0) session.buffered.push(...pageModules);
-
-    session.projectNext = page.next;
-    session.projectNextCursor = page.nextCursor || extractPlaneCursor(page.next);
-    session.projectResolvedPath = page.resolvedPath || session.projectResolvedPath;
-
-    if (!session.projectNext && !session.projectNextCursor) {
+  const projectId = session.projectIds[session.projectIndex];
+  let page;
+  try {
+    page = await fetchScopedProjectModulesPage(projectId, session);
+  } catch (error) {
+    if (error instanceof PlaneApiError && error.status === 403) {
       session.projectIndex += 1;
       session.projectNext = null;
       session.projectNextCursor = null;
       session.projectResolvedPath = null;
+
+      const hasMoreAfterSkip = session.projectIndex < session.projectIds.length;
+      if (!hasMoreAfterSkip) {
+        moduleBrowseSessions.delete(session.id);
+        return { modules: [], nextCursor: null, hasMore: false };
+      }
+      session.expiresAt = Date.now() + MODULE_BROWSE_SESSION_TTL_MS;
+      return { modules: [], nextCursor: session.id, hasMore: true };
     }
+    if (error instanceof PlaneApiError && error.status === 429) {
+      throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
+    }
+    throw error;
+  }
+
+  const modules = page.items
+    .map((module) =>
+      normalizePlaneModuleRecord(module, {
+        projectId,
+        projectName: projectId,
+        projectIdentifier: "",
+      })
+    )
+    .filter(Boolean)
+    .filter((module) => moduleMatchesSearch(module, searchLower));
+
+  session.projectNext = page.next;
+  session.projectNextCursor = page.nextCursor || extractPlaneCursor(page.next);
+  session.projectResolvedPath = page.resolvedPath || session.projectResolvedPath;
+
+  if (!session.projectNext && !session.projectNextCursor) {
+    session.projectIndex += 1;
+    session.projectNext = null;
+    session.projectNextCursor = null;
+    session.projectResolvedPath = null;
   }
 
   const hasMore =
-    session.buffered.length > 0 ||
     session.projectIndex < session.projectIds.length ||
     !!session.projectNext ||
     !!session.projectNextCursor;
