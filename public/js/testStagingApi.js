@@ -9,14 +9,6 @@ export async function getTestStagingModules({ search = "", cursor = "", limit = 
   return api("GET", `/api/test-staging/modules${queryString ? `?${queryString}` : ""}`);
 }
 
-export async function getTestStagingPreferences() {
-  return api("GET", "/api/test-staging/preferences");
-}
-
-export async function saveTestStagingSelectedModule(payload) {
-  return api("POST", "/api/test-staging/selected-module", payload);
-}
-
 export async function getTestStagingStates(projectId) {
   const query = new URLSearchParams({ projectId });
   return api("GET", `/api/test-staging/states?${query.toString()}`);

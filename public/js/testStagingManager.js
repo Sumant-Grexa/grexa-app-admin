@@ -2,9 +2,7 @@ import { api } from "./api.js";
 import {
   clearTestStagingPlaneRequests,
   getTestStagingModules,
-  getTestStagingPreferences,
   getTestStagingStates,
-  saveTestStagingSelectedModule,
   startTestStaging,
   getTestStagingLog,
 } from "./testStagingApi.js";
@@ -111,7 +109,7 @@ function updateModuleDisplay() {
   if (!selectedModule) {
     if (moduleDropdownCtrl?.isLoading()) display.textContent = "Loading modules...";
     else if ((moduleDropdownCtrl?.getItemCount() || 0) > 0) display.textContent = "Select module";
-    else display.textContent = "No cached module selected";
+    else display.textContent = "No module selected";
     return;
   }
 
@@ -186,20 +184,6 @@ async function loadEnvOptions() {
     option.value = envId;
     option.textContent = env.label || envId;
     envSelect.appendChild(option);
-  }
-}
-
-async function loadPreferences() {
-  const prefs = await getTestStagingPreferences();
-  selectedModule = prefs?.selectedModule || null;
-  updateModuleDisplay();
-
-  if (selectedModule) {
-    setModuleSelectionEnabled(false);
-    setModuleHint("Using cached selected module. Click Change to fetch/search modules.");
-  } else {
-    setModuleSelectionEnabled(true);
-    setModuleHint("No module selected. Open dropdown to fetch/search modules.");
   }
 }
 
@@ -296,16 +280,11 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
     },
     onSelect: async (picked) => {
       hideTsError();
-      const response = await saveTestStagingSelectedModule(picked);
-      selectedModule = response?.selectedModule || picked;
-      const manualModuleIdInput = document.getElementById("ts-module-id-input");
-      if (manualModuleIdInput) {
-        manualModuleIdInput.value = String(selectedModule?.moduleId || "");
-      }
+      selectedModule = picked;
 
       updateModuleDisplay();
       setModuleSelectionEnabled(false);
-      setModuleHint("Using cached selected module. Click Change to switch.");
+      setModuleHint("Module selected. Click Change to switch.");
 
       try {
         await loadStates(selectedModule?.projectId || "");
@@ -330,7 +309,6 @@ function initModuleDropdown({ moduleDropdown, moduleSearch, moduleOptionsEl }) {
 export function initTestStagingManager() {
   const modal = document.getElementById("test-staging-modal");
   const form = document.getElementById("test-staging-form");
-  const manualModuleIdInput = document.getElementById("ts-module-id-input");
 
   const moduleTrigger = document.getElementById("ts-module-trigger");
   const moduleDropdown = document.getElementById("ts-module-dropdown");
@@ -434,15 +412,14 @@ export function initTestStagingManager() {
     modal?.classList.remove("hidden");
 
     try {
+      selectedModule = null;
+      setModuleSelectionEnabled(true);
+      setModuleHint("No module selected. Open dropdown to fetch/search modules.");
       await loadEnvOptions();
-      await loadPreferences();
-      if (manualModuleIdInput) {
-        manualModuleIdInput.value = String(selectedModule?.moduleId || "");
-      }
-
+      moduleDropdownCtrl?.clearSearch();
       updateModuleDisplay();
       moduleDropdownCtrl?.render();
-      await loadStates(selectedModule?.projectId || "");
+      await loadStates("");
       await refreshExistingRunState();
     } catch (error) {
       showTsError(error instanceof Error ? error.message : "Failed to load Test Staging options");
@@ -468,11 +445,11 @@ export function initTestStagingManager() {
     hideTsError();
 
     const envId = String(document.getElementById("ts-env-select")?.value || "").trim();
-    const moduleId = String(manualModuleIdInput?.value || "").trim() || String(selectedModule?.moduleId || "").trim();
+    const moduleId = String(selectedModule?.moduleId || "").trim();
     const projectId = String(selectedModule?.projectId || "").trim();
 
     if (!envId) return showTsError("Environment is required");
-    if (!moduleId) return showTsError("Module ID is required. Enter Module ID or select a module.");
+    if (!moduleId || !projectId) return showTsError("Select a module from dropdown.");
 
     setStatusBadge("running");
     setSubmitRunning(true);

@@ -4,9 +4,6 @@ import {
   fetchPlaneModulesPage,
   fetchPlaneStates,
   getPlaneRequestDebugLog,
-  getSelectedTestStagingModule,
-  getTestStagingPreferences,
-  saveSelectedTestStagingModule,
   startTestStagingRun,
   testStagingState,
 } from "../services/testStagingService.js";
@@ -25,35 +22,10 @@ export async function getTestStagingModules(_req, res) {
     const page = await fetchPlaneModulesPage({ cursor, search, limit });
     res.json(page);
   } catch (error) {
+    if (error instanceof Error && error.code === "INVALID_CURSOR") {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-}
-
-/**
- * GET /api/test-staging/preferences
- * @param {import("express").Request} _req
- * @param {import("express").Response} res
- */
-export function getTestStagingPrefs(_req, res) {
-  try {
-    res.json(getTestStagingPreferences());
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
-  }
-}
-
-/**
- * POST /api/test-staging/selected-module
- * Body: { projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier?: string }
- * @param {import("express").Request} req
- * @param {import("express").Response} res
- */
-export function setTestStagingSelectedModule(req, res) {
-  try {
-    const selectedModule = saveSelectedTestStagingModule(req.body || {});
-    res.json({ selectedModule });
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -93,14 +65,6 @@ export function startTestStaging(req, res) {
       : [];
   const statusIds = [...new Set(statusIdsRaw.map((value) => String(value || "").trim()).filter(Boolean))];
 
-  if (!projectId || !moduleId) {
-    const selectedModule = getSelectedTestStagingModule();
-    if (selectedModule) {
-      if (!projectId) projectId = selectedModule.projectId;
-      if (!moduleId) moduleId = selectedModule.moduleId;
-    }
-  }
-
   if (!projectId) {
     const scopedProjectIds = String(process.env.PLANE_TEST_STAGING_PROJECT_IDS || "")
       .split(",")
@@ -114,7 +78,7 @@ export function startTestStaging(req, res) {
   if (!envId) return res.status(400).json({ error: "envId is required" });
   if (!projectId) {
     return res.status(400).json({
-      error: "projectId is required. Select a module once, or configure exactly one PLANE_TEST_STAGING_PROJECT_IDS value.",
+      error: "projectId is required. Select a module from dropdown first, or configure exactly one PLANE_TEST_STAGING_PROJECT_IDS value.",
     });
   }
   if (!moduleId) return res.status(400).json({ error: "moduleId is required" });

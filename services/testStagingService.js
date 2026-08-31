@@ -1,13 +1,11 @@
 import simpleGit from "simple-git";
+import { randomUUID } from "crypto";
 import { getEnvs } from "../config/environments.js";
-import {
-  getTestStagingCache,
-  setTestStagingSelectedModule,
-} from "../config/testStagingCache.js";
 
 const GITHUB_PR_REGEX = /https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
 const DEFAULT_MODULE_PAGE_SIZE = 25;
 const MAX_MODULE_PAGE_SIZE = 100;
+const MODULE_BROWSE_SESSION_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_PLANE_REQUEST_GAP_MS = 250;
 const DEFAULT_PLANE_MAX_429_RETRIES = 3;
 const DEFAULT_PLANE_429_BACKOFF_MS = 1000;
@@ -21,10 +19,10 @@ export const testStagingState = {
   meta: null,
 };
 
-const persistedCache = getTestStagingCache();
 /** @type {Map<string, string>} */
 const planeResolvedPathCache = new Map();
-let selectedModuleCache = persistedCache.selectedModule || null;
+/** @type {Map<string, { id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }>} */
+const moduleBrowseSessions = new Map();
 /** @type {Promise<unknown>} */
 let planeRequestChain = Promise.resolve();
 let lastPlaneRequestAt = 0;
@@ -44,6 +42,17 @@ class PlaneApiError extends Error {
     this.status = status;
     this.details = details;
     this.meta = meta;
+  }
+}
+
+class ModuleBrowseCursorError extends Error {
+  /**
+   * @param {string} message
+   */
+  constructor(message) {
+    super(message);
+    this.name = "ModuleBrowseCursorError";
+    this.code = "INVALID_CURSOR";
   }
 }
 
@@ -163,30 +172,6 @@ function normalizeModuleRecord(module) {
     projectName,
     moduleName,
     projectIdentifier,
-  };
-}
-
-export function getSelectedTestStagingModule() {
-  return selectedModuleCache ? { ...selectedModuleCache } : null;
-}
-
-/**
- * @param {unknown} module
- */
-export function saveSelectedTestStagingModule(module) {
-  const normalized = normalizeModuleRecord(module);
-  if (!normalized) {
-    throw new Error("Invalid module selection");
-  }
-
-  selectedModuleCache = normalized;
-  setTestStagingSelectedModule(normalized);
-  return { ...normalized };
-}
-
-export function getTestStagingPreferences() {
-  return {
-    selectedModule: getSelectedTestStagingModule(),
   };
 }
 
@@ -406,6 +391,34 @@ function normalizeModuleSearch(search) {
 }
 
 /**
+ * @param {{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier?: string }} module
+ * @param {string} normalizedSearch
+ * @returns {boolean}
+ */
+function moduleMatchesSearch(module, normalizedSearch) {
+  if (!normalizedSearch) return true;
+  const searchable = `${module.projectName} ${module.moduleName} ${module.projectIdentifier || ""}`.toLowerCase();
+  return searchable.includes(normalizedSearch);
+}
+
+function pruneModuleBrowseSessions() {
+  const now = Date.now();
+  for (const [cursor, session] of moduleBrowseSessions.entries()) {
+    if (session.expiresAt <= now) {
+      moduleBrowseSessions.delete(cursor);
+    }
+  }
+}
+
+/**
+ * @param {string} nextPath
+ * @returns {URL}
+ */
+function resolvePlaneNextUrl(nextPath) {
+  return nextPath.startsWith("http") ? new URL(nextPath) : buildPlaneUrl(nextPath);
+}
+
+/**
  * @param {string | null} next
  * @returns {string | null}
  */
@@ -422,9 +435,10 @@ function extractPlaneCursor(next) {
 
 /**
  * @param {unknown} module
+ * @param {{ projectId?: string, projectName?: string, projectIdentifier?: string }} [fallback]
  * @returns {{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string } | null}
  */
-function normalizePlaneModuleRecord(module) {
+function normalizePlaneModuleRecord(module, fallback = {}) {
   if (!module || typeof module !== "object") return null;
 
   const project =
@@ -435,14 +449,85 @@ function normalizePlaneModuleRecord(module) {
         : null;
 
   return normalizeModuleRecord({
-    projectId: String(module.project_id || module.projectId || project?.id || "").trim(),
+    projectId: String(module.project_id || module.projectId || project?.id || fallback.projectId || "").trim(),
     moduleId: String(module.id || module.module_id || module.moduleId || "").trim(),
-    projectName: String(module.project_name || module.projectName || project?.name || "").trim(),
+    projectName: String(module.project_name || module.projectName || project?.name || fallback.projectName || fallback.projectId || "").trim(),
     moduleName: String(module.name || module.title || module.module_name || module.moduleName || "").trim(),
     projectIdentifier: String(
-      module.project_identifier || module.projectIdentifier || project?.identifier || ""
+      module.project_identifier || module.projectIdentifier || project?.identifier || fallback.projectIdentifier || ""
     ).trim(),
   });
+}
+
+/**
+ * @param {{ limit: number, search: string, cursor: string }} input
+ * @returns {Promise<{ modules: Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>, nextCursor: string | null, hasMore: boolean }>}
+ */
+async function fetchWorkspaceModulesPage(input) {
+  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
+  const query = { limit: input.limit };
+  if (input.cursor) query.cursor = input.cursor;
+  if (input.search) query.search = input.search;
+
+  const payload = await doPlaneFetch(
+    buildPlaneUrl(`/api/v1/workspaces/${workspaceSlug}/modules/`, {
+      query,
+    })
+  );
+
+  const page = normalizePaginatedPayload(payload);
+  const scopedProjectSet = scopedProjectIds.length > 0 ? new Set(scopedProjectIds) : null;
+  const modules = page.items
+    .map((module) => normalizePlaneModuleRecord(module))
+    .filter(Boolean)
+    .filter((module) => {
+      if (!scopedProjectSet) return true;
+      return scopedProjectSet.has(module.projectId);
+    });
+
+  const nextCursor = String(page.nextCursor || extractPlaneCursor(page.next) || "").trim() || null;
+  return {
+    modules,
+    nextCursor,
+    hasMore: Boolean(nextCursor),
+  };
+}
+
+/**
+ * @param {string} projectId
+ * @param {{ projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, search: string }} session
+ * @returns {Promise<{ items: any[], next: string | null, nextCursor: string | null, resolvedPath: string | null }>}
+ */
+async function fetchScopedProjectModulesPage(projectId, session) {
+  const { workspaceSlug } = getPlaneConfig();
+  const projectBase = `/api/v1/workspaces/${workspaceSlug}/projects/${projectId}/modules`;
+
+  if (session.projectNext) {
+    const payload = await doPlaneFetch(resolvePlaneNextUrl(session.projectNext));
+    const normalized = normalizePaginatedPayload(payload);
+    return { ...normalized, resolvedPath: session.projectResolvedPath };
+  }
+
+  if (session.projectNextCursor && session.projectResolvedPath) {
+    const payload = await doPlaneFetch(
+      buildPlaneUrl(session.projectResolvedPath, {
+        query: {
+          cursor: session.projectNextCursor,
+          ...(session.search ? { search: session.search } : {}),
+        },
+      })
+    );
+    const normalized = normalizePaginatedPayload(payload);
+    return { ...normalized, resolvedPath: session.projectResolvedPath };
+  }
+
+  const { payload, resolvedPath } = await requestPlaneWithFallback(
+    [`${projectBase}/`, `${projectBase}`],
+    { query: session.search ? { search: session.search } : undefined }
+  );
+
+  const normalized = normalizePaginatedPayload(payload);
+  return { ...normalized, resolvedPath };
 }
 
 /**
@@ -584,46 +669,135 @@ function getInlineIssueLinks(issue) {
 export async function fetchPlaneModulesPage(input = {}) {
   const cursor = String(input.cursor || "").trim();
   const search = normalizeModuleSearch(input.search || "");
+  const searchLower = search.toLowerCase();
   const rawLimit = Number.parseInt(String(input.limit ?? DEFAULT_MODULE_PAGE_SIZE), 10);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(MAX_MODULE_PAGE_SIZE, Math.max(1, rawLimit))
     : DEFAULT_MODULE_PAGE_SIZE;
 
-  const { workspaceSlug, scopedProjectIds } = getPlaneConfig();
-  const query = { limit };
-  if (cursor) query.cursor = cursor;
-  if (search) query.search = search;
+  pruneModuleBrowseSessions();
 
-  let payload;
   try {
-    payload = await doPlaneFetch(
-      buildPlaneUrl(`/api/v1/workspaces/${workspaceSlug}/modules/`, {
-        query,
-      })
-    );
+    return await fetchWorkspaceModulesPage({
+      limit,
+      search,
+      cursor,
+    });
   } catch (error) {
     if (error instanceof PlaneApiError && error.status === 429) {
       throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
     }
-    throw error;
+    if (!(error instanceof PlaneApiError) || (error.status !== 404 && error.status !== 405)) {
+      throw error;
+    }
   }
 
-  const page = normalizePaginatedPayload(payload);
-  const scopedProjectSet = scopedProjectIds.length > 0 ? new Set(scopedProjectIds) : null;
-  const modules = page.items
-    .map((module) => normalizePlaneModuleRecord(module))
-    .filter(Boolean)
-    .filter((module) => {
-      if (!scopedProjectSet) return true;
-      return scopedProjectSet.has(module.projectId);
-    });
+  const { scopedProjectIds } = getPlaneConfig();
+  if (scopedProjectIds.length === 0) {
+    throw new Error(
+      "Plane workspace modules endpoint is unavailable (404). Configure PLANE_TEST_STAGING_PROJECT_IDS to enable project-scoped module pagination."
+    );
+  }
 
-  const nextCursor = String(page.nextCursor || extractPlaneCursor(page.next) || "").trim() || null;
+  /** @type {{ id: string, search: string, projectIds: string[], projectIndex: number, projectNext: string | null, projectNextCursor: string | null, projectResolvedPath: string | null, buffered: Array<{ projectId: string, moduleId: string, projectName: string, moduleName: string, projectIdentifier: string }>, expiresAt: number }} */
+  let session;
+
+  if (!cursor) {
+    session = {
+      id: randomUUID(),
+      search,
+      projectIds: [...new Set(scopedProjectIds)],
+      projectIndex: 0,
+      projectNext: null,
+      projectNextCursor: null,
+      projectResolvedPath: null,
+      buffered: [],
+      expiresAt: Date.now() + MODULE_BROWSE_SESSION_TTL_MS,
+    };
+    moduleBrowseSessions.set(session.id, session);
+  } else {
+    const existing = moduleBrowseSessions.get(cursor);
+    if (!existing) {
+      throw new ModuleBrowseCursorError("Module pagination cursor expired. Reopen the dropdown and search again.");
+    }
+    if (String(existing.search || "").toLowerCase() !== searchLower) {
+      throw new ModuleBrowseCursorError("Module pagination cursor does not match current search.");
+    }
+    existing.expiresAt = Date.now() + MODULE_BROWSE_SESSION_TTL_MS;
+    session = existing;
+  }
+
+  /** @type {Array<{ projectId: string, projectName: string, projectIdentifier: string, moduleId: string, moduleName: string }>} */
+  const modules = [];
+
+  while (modules.length < limit) {
+    if (session.buffered.length > 0) {
+      const bufferedItem = session.buffered.shift();
+      if (bufferedItem) modules.push(bufferedItem);
+      continue;
+    }
+
+    if (session.projectIndex >= session.projectIds.length) break;
+    const projectId = session.projectIds[session.projectIndex];
+
+    let page;
+    try {
+      page = await fetchScopedProjectModulesPage(projectId, session);
+    } catch (error) {
+      if (error instanceof PlaneApiError && error.status === 403) {
+        session.projectIndex += 1;
+        session.projectNext = null;
+        session.projectNextCursor = null;
+        session.projectResolvedPath = null;
+        continue;
+      }
+      if (error instanceof PlaneApiError && error.status === 429) {
+        throw new Error("Plane API rate limit hit while loading modules page (429). Retry shortly.");
+      }
+      throw error;
+    }
+
+    const pageModules = page.items
+      .map((module) =>
+        normalizePlaneModuleRecord(module, {
+          projectId,
+          projectName: projectId,
+          projectIdentifier: "",
+        })
+      )
+      .filter(Boolean)
+      .filter((module) => moduleMatchesSearch(module, searchLower));
+
+    if (pageModules.length > 0) session.buffered.push(...pageModules);
+
+    session.projectNext = page.next;
+    session.projectNextCursor = page.nextCursor || extractPlaneCursor(page.next);
+    session.projectResolvedPath = page.resolvedPath || session.projectResolvedPath;
+
+    if (!session.projectNext && !session.projectNextCursor) {
+      session.projectIndex += 1;
+      session.projectNext = null;
+      session.projectNextCursor = null;
+      session.projectResolvedPath = null;
+    }
+  }
+
+  const hasMore =
+    session.buffered.length > 0 ||
+    session.projectIndex < session.projectIds.length ||
+    !!session.projectNext ||
+    !!session.projectNextCursor;
+
+  if (!hasMore) {
+    moduleBrowseSessions.delete(session.id);
+  } else {
+    session.expiresAt = Date.now() + MODULE_BROWSE_SESSION_TTL_MS;
+  }
 
   return {
     modules,
-    nextCursor,
-    hasMore: Boolean(nextCursor),
+    nextCursor: hasMore ? session.id : null,
+    hasMore,
   };
 }
 
