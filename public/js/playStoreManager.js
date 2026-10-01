@@ -223,6 +223,8 @@ export function initPlayStoreManager() {
     const platforms = [];
     if (androidCheckbox && androidCheckbox.checked) platforms.push("android");
     if (iosCheckbox && iosCheckbox.checked) platforms.push("ios");
+    const webCheckbox = document.getElementById("ps-web");
+    if (webCheckbox && webCheckbox.checked) platforms.push("web");
 
     /* Build payload */
     const releasePassword = (document.getElementById("ps-password")?.value || "").trim();

@@ -97,3 +97,27 @@ export function getReleaseConfig() {
   if (!_config) _config = loadConfig();
   return _config;
 }
+
+/**
+ * Prod web deploy target. Validated lazily, only when the web platform is selected.
+ * @returns {{ repoPath: string, buildOutput: string, flavor: string, remote: { host: string, user: string, path: string } }}
+ */
+export function getWebProdConfig() {
+  const repoPath = process.env.FLUTTER_APP_REPO_PATH;
+  const remotePath = process.env.WEB_PROD_REMOTE_PATH;
+  const missing = [];
+  if (!repoPath) missing.push("FLUTTER_APP_REPO_PATH");
+  if (!remotePath) missing.push("WEB_PROD_REMOTE_PATH");
+  if (missing.length) throw new Error(`Missing env var(s): ${missing.join(", ")}`);
+
+  return {
+    repoPath,
+    buildOutput: `${repoPath.replace(/\/+$/, "")}/build/web`,
+    flavor: process.env.WEB_PROD_FLAVOR || "prod",
+    remote: {
+      host: process.env.WEB_PROD_HOST || "10.160.0.110",
+      user: process.env.WEB_PROD_USER || "sumant",
+      path: remotePath.replace(/\/+$/, ""),
+    },
+  };
+}

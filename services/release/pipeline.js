@@ -1,5 +1,6 @@
 import { getReleaseConfig } from "../../config/releaseConfig.js";
 import { syncSupportAgentRagDocsToBeacon } from "./beaconDocsSync.js";
+import { deployWebProd } from "./webDeploy.js";
 
 // ─── Release State ─────────────────────────────────────────────────────────────
 export const releaseState = {
@@ -9,6 +10,7 @@ export const releaseState = {
   finishedAt: null,
   android: { runId: null, uploaded: false },
   ios: { runId: null, uploaded: false },
+  web: { deployed: false },
   tagName: null,
   releaseUrl: null,
 };
@@ -208,6 +210,7 @@ function buildChatMessage({
   const iosRequested = platforms.includes("ios");
   const androidDone = results.some((r) => r.platform === "android" && r.ok);
   const iosDone = results.some((r) => r.platform === "ios" && r.ok);
+  const webDone = results.some((r) => r.platform === "web" && r.ok);
   const androidPercent = Math.max(1, Math.min(100, Number.parseInt(String(Math.round((userFraction ?? 0.1) * 100)), 10) || 10));
 
   const titleParts = [];
@@ -217,7 +220,7 @@ function buildChatMessage({
   if (iosRequested) {
     if (iosDone) titleParts.push(`${describeIosRollout(iosReleaseType)} on IOS`);
   }
-  titleParts.push("100% on web");
+  if (webDone) titleParts.push("100% on web");
 
   const dateLabel = new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(new Date());
   const title = `${dateLabel} ${tagName} release ${joinWithAnd(titleParts)}`;
@@ -283,6 +286,7 @@ export async function runReleasePipeline(options) {
     finishedAt: null,
     android: { runId: null, uploaded: false },
     ios: { runId: null, uploaded: false },
+    web: { deployed: false },
     tagName: null,
     releaseUrl: null,
   });
@@ -373,18 +377,26 @@ export async function runReleasePipeline(options) {
     );
 
     // ── Poll concurrently ─────────────────────────────────────────────────────
-    const results = await Promise.all(
-      runIds.map(({ platform, id }) =>
+    const webTask = platforms.includes("web")
+      ? deployWebProd(RELEASE_BRANCH, (line) => append(`[web] ${line}`))
+          .then(() => ({ platform: "web", ok: true }))
+          .catch((err) => ({ platform: "web", ok: false, error: err.message }))
+      : null;
+
+    const results = await Promise.all([
+      ...runIds.map(({ platform, id }) =>
         pollRun(githubToken, githubRepo, id, append, platform)
           .then(() => ({ platform, ok: true }))
           .catch((err) => ({ platform, ok: false, error: err.message }))
-      )
-    );
+      ),
+      ...(webTask ? [webTask] : []),
+    ]);
 
     const failed = results.filter((r) => !r.ok);
     const succeeded = results.filter((r) => r.ok);
     releaseState.android.uploaded = succeeded.some((s) => s.platform === "android");
     releaseState.ios.uploaded = succeeded.some((s) => s.platform === "ios");
+    releaseState.web.deployed = succeeded.some((s) => s.platform === "web");
 
     for (const f of failed) append(`[${f.platform}] ✗ ${f.error}`);
     for (const s of succeeded) append(`[${s.platform}] ✓ complete`);
