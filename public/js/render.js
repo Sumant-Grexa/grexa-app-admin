@@ -27,9 +27,16 @@ export function updateHeaderDot(deploying) {
   dot.className = "status-dot " + (deploying ? "deploying" : "idle");
 }
 
+/** Per-env deploy flavor choice ("dev" | "prod"), kept across re-renders. */
+const flavorChoice = {};
+
 /** Returns the currently selected branch value for an env. */
 export function getBranchValue(envId) {
   return document.getElementById(`select-wrap-${envId}`)?.dataset.selected ?? "";
+}
+
+export function getFlavor(envId) {
+  return flavorChoice[envId] || "dev";
 }
 
 export function populateSelect(envId, { branches, current }, disabled = false) {
@@ -82,6 +89,9 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
     const isDeploying = deploy?.status === "deploying";
     const branch = env.currentBranch || "unknown";
     const isDevEnv = env.flavor === "dev";
+    const prodAllowed = !!env.prodWebDeploy?.enabled;
+    if (!prodAllowed || isDeploying) flavorChoice[id] = isDeploying ? flavorChoice[id] : "dev";
+    const selectedFlavor = flavorChoice[id] || "dev";
 
     const card = document.createElement("div");
     card.className = `env-card ${stateClass(deploy)}`;
@@ -145,6 +155,15 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
           </div>
         </div>
         <button class="btn-fetch" id="fetch-${id}" ${isDeploying ? "disabled" : ""}>Fetch</button>
+      </div>
+
+      <div class="card-flavor-row">
+        <label class="flavor-label">
+          <input type="radio" name="flavor-${id}" value="dev" ${selectedFlavor === "dev" ? "checked" : ""} ${isDeploying ? "disabled" : ""} /> Dev
+        </label>
+        <label class="flavor-label" title="${prodAllowed ? "Build the prod repo/flavor and deploy to this env" : "Prod deploy is not enabled for this env"}">
+          <input type="radio" name="flavor-${id}" value="prod" ${selectedFlavor === "prod" ? "checked" : ""} ${!prodAllowed || isDeploying ? "disabled" : ""} /> Prod
+        </label>
       </div>
 
       ${isDevEnv ? `
@@ -221,16 +240,21 @@ export function renderEnvList(data, branchCache, { onFetch, onDeploy, onViewLog,
       deployBtn.disabled = isDeploying;
     });
 
+    card.querySelectorAll(`input[name="flavor-${id}"]`).forEach((r) =>
+      r.addEventListener("change", () => { flavorChoice[id] = r.value; })
+    );
+
     document.getElementById(`fetch-${id}`)
       .addEventListener("click", () => onFetch(id));
 
     deployBtn.addEventListener("click", () => {
       const b = getBranchValue(id);
       const runBuildRunner = document.getElementById(`build-runner-${id}`)?.checked ?? false;
-      const additionalFlags = isDevEnv
+      const flavor = getFlavor(id);
+      const additionalFlags = isDevEnv && flavor === "dev"
         ? (document.getElementById(`extra-flags-${id}`)?.value?.trim() ?? "")
         : "";
-      if (b) onDeploy(id, b, runBuildRunner, additionalFlags);
+      if (b) onDeploy(id, b, runBuildRunner, additionalFlags, flavor);
     });
 
     const logBtn = document.getElementById(`log-${id}`);

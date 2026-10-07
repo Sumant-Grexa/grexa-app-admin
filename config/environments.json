@@ -10,6 +10,10 @@
       "host": "34.47.166.243",
       "user": "sumant",
       "path": "/var/www/preprod-app/web"
+    },
+    "prodWebDeploy": {
+      "enabled": true,
+      "flavor": "prod"
     }
   },
   "bira": {

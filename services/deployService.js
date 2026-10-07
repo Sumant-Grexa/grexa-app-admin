@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import simpleGit from "simple-git";
 import { getEnvs } from "../config/environments.js";
+import { deployProdFlavorToEnv } from "./release/webDeploy.js";
 
 const execAsync = promisify(exec);
 
@@ -53,6 +54,14 @@ async function runDeploy(envId) {
 
   try {
     const { targetBranch } = deployState[envId];
+
+    if (deployState[envId].flavor === "prod") {
+      await deployProdFlavorToEnv(env, targetBranch, append, {
+        runBuildRunner: deployState[envId].runBuildRunner,
+      });
+      setState(envId, { status: "success", branch: targetBranch, finishedAt: new Date().toISOString() });
+      return;
+    }
 
     append(`Fetching latest from remote...`);
     await git.fetch(["--prune"]);

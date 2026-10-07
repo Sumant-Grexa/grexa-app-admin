@@ -65,11 +65,15 @@ async function getEnvBranches(req, res) {
  * @param {import("express").Response} res
  */
 function startDeploy(req, res) {
-  const { envId, branch, runBuildRunner = false, additionalFlags = "" } = req.body;
+  const { envId, branch, runBuildRunner = false, additionalFlags = "", flavor = "dev" } = req.body;
   const env = getEnvs()[envId];
 
   if (!env) return res.status(404).json({ error: "Unknown environment" });
   if (!branch) return res.status(400).json({ error: "Branch is required" });
+  if (flavor !== "dev" && flavor !== "prod") return res.status(400).json({ error: "Invalid flavor" });
+  if (flavor === "prod" && !env.prodWebDeploy?.enabled) {
+    return res.status(403).json({ error: `Prod deploy is not enabled for ${envId}` });
+  }
 
   const current = deployState[envId];
   if (current?.status === "deploying") {
@@ -80,7 +84,8 @@ function startDeploy(req, res) {
     status: "deploying",
     targetBranch: branch,
     runBuildRunner: !!runBuildRunner,
-    additionalFlags: env.flavor === "dev" && typeof additionalFlags === "string"
+    flavor,
+    additionalFlags: flavor === "dev" && env.flavor === "dev" && typeof additionalFlags === "string"
       ? additionalFlags.trim()
       : "",
     log: [],
