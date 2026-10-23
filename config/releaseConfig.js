@@ -16,6 +16,8 @@ function loadConfig() {
   const githubToken = process.env.GITHUB_TOKEN;
   const githubRepo = process.env.GITHUB_REPO;
   const googleChatWebhookUrl = process.env.GOOGLE_CHAT_WEBHOOK_URL || null;
+  const googleChatReleaseNotifyEnabled =
+    process.env.GOOGLE_CHAT_RELEASE_NOTIFY_ENABLED?.trim().toLowerCase() !== "false";
   const googleChatBeaconDocsWebhookUrl =
     process.env.GOOGLE_CHAT_BEACON_DOCS_WEBHOOK_URL || null;
   const flutterAppRepoPath = process.env.FLUTTER_APP_REPO_PATH || null;
@@ -70,6 +72,7 @@ function loadConfig() {
     githubToken,
     githubRepo,
     googleChatWebhookUrl,
+    googleChatReleaseNotifyEnabled,
     googleChatBeaconDocsWebhookUrl,
     flutterAppRepoPath,
     beacon: {

@@ -270,6 +270,7 @@ export async function runReleasePipeline(options) {
     githubToken,
     githubRepo,
     googleChatWebhookUrl,
+    googleChatReleaseNotifyEnabled,
     googleChatBeaconDocsWebhookUrl,
     beacon,
   } = getReleaseConfig();
@@ -442,24 +443,29 @@ export async function runReleasePipeline(options) {
       append("Skipping Beacon docs sync and bucket upload: disabled in release form.");
     }
 
-    if (!googleChatWebhookUrl) {
-      throw new Error("Missing env var: GOOGLE_CHAT_WEBHOOK_URL");
-    }
+    const googleChatPosts = [];
+    if (googleChatReleaseNotifyEnabled) {
+      if (!googleChatWebhookUrl) {
+        throw new Error("Missing env var: GOOGLE_CHAT_WEBHOOK_URL");
+      }
 
-    const chatPayload = buildChatMessage({
-      tagName,
-      generatedNotes: githubNotes,
-      inputNotes: releaseNotes,
-      platforms,
-      results,
-      userFraction,
-      iosReleaseType,
-    });
-    const googleChatPosts = [
-      postGoogleChatRelease(googleChatWebhookUrl, chatPayload).then(() => {
-        append("Posted release notes to Google Chat.");
-      }),
-    ];
+      const chatPayload = buildChatMessage({
+        tagName,
+        generatedNotes: githubNotes,
+        inputNotes: releaseNotes,
+        platforms,
+        results,
+        userFraction,
+        iosReleaseType,
+      });
+      googleChatPosts.push(
+        postGoogleChatRelease(googleChatWebhookUrl, chatPayload).then(() => {
+          append("Posted release notes to Google Chat.");
+        })
+      );
+    } else {
+      append("Skipping release notes Google Chat notification: GOOGLE_CHAT_RELEASE_NOTIFY_ENABLED=false.");
+    }
 
     if (googleChatBeaconDocsWebhookUrl && beaconSyncResult.documents?.length) {
       const beaconDocsPayload = buildBeaconDocsChatMessage({
